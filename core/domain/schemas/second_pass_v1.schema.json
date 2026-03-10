@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://worlds.local/schemas/second_pass_v1.schema.json",
+  "title": "SecondPassSummaryV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "enabled",
+    "status",
+    "reason",
+    "model_info",
+    "candidates_count",
+    "resolved_count",
+    "uncertain_count",
+    "occurrences",
+    "stage_statuses",
+    "cache_hit",
+    "sync_enabled",
+    "sync_stage_status",
+    "added",
+    "already_existed",
+    "queued_for_sync",
+    "rejected_candidates",
+    "category_review_required"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string"
+    },
+    "model_info": {
+      "type": "object"
+    },
+    "candidates_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "resolved_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "uncertain_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "occurrences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "surface",
+          "canonical_form",
+          "expression_type",
+          "is_separable",
+          "span_start",
+          "span_end",
+          "sentence_text",
+          "alternatives",
+          "score",
+          "margin",
+          "usage_label",
+          "status"
+        ],
+        "properties": {
+          "surface": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonical_form": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expression_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "is_separable": {
+            "type": "boolean"
+          },
+          "span_start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "span_end": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sentence_text": {
+            "type": "string"
+          },
+          "sense": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "alternatives": {
+            "type": "array"
+          },
+          "score": {
+            "type": "number"
+          },
+          "margin": {
+            "type": "number"
+          },
+          "usage_label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "stage_statuses": {
+      "type": "array"
+    },
+    "cache_hit": {
+      "type": "boolean"
+    },
+    "sync_enabled": {
+      "type": "boolean"
+    },
+    "sync_stage_status": {
+      "type": "object",
+      "required": [
+        "status",
+        "reason",
+        "duration_ms"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "added": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "already_existed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "queued_for_sync": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rejected_candidates": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "category_review_required": {
+      "type": "array"
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

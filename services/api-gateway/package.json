@@ -1,0 +1,15 @@
+{
+  "name": "@vocabulary/api-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.3.0",
+    "@vocabulary/shared": "file:../shared",
+    "fastify": "^5.6.2"
+  }
+}

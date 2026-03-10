@@ -1,0 +1,146 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: vocabulary
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vocabulary"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  legacy-backend:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: >
+      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python main_web.py"
+    environment:
+      LEGACY_BACKEND_HOST: 0.0.0.0
+      LEGACY_BACKEND_PORT: 8766
+    ports:
+      - "${LEGACY_BACKEND_HOST_PORT:-8766}:8766"
+
+  nlp-service:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: >
+      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python main_nlp.py"
+    environment:
+      NLP_SERVICE_HOST: 0.0.0.0
+      NLP_SERVICE_PORT: 8767
+      LEXICON_SERVICE_HOST: lexicon-service
+      LEXICON_SERVICE_PORT: 4011
+    depends_on:
+      - lexicon-service
+    ports:
+      - "${NLP_SERVICE_HOST_PORT:-8767}:8767"
+
+  export-service:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: >
+      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python main_export.py"
+    environment:
+      EXPORT_SERVICE_HOST: 0.0.0.0
+      EXPORT_SERVICE_PORT: 8768
+      LEXICON_SERVICE_HOST: lexicon-service
+      LEXICON_SERVICE_PORT: 4011
+    depends_on:
+      - lexicon-service
+    ports:
+      - "${EXPORT_SERVICE_HOST_PORT:-8768}:8768"
+
+  lexicon-service:
+    image: node:22
+    working_dir: /app/services
+    volumes:
+      - ./:/app
+    command: >
+      sh -lc "npm install && npm --workspace @vocabulary/lexicon-service run dev"
+    environment:
+      LEXICON_SERVICE_HOST: 0.0.0.0
+      LEXICON_SERVICE_PORT: 4011
+      OWNER_SERVICES_STORAGE_BACKEND: ${OWNER_SERVICES_STORAGE_BACKEND:-postgres}
+      OWNER_SERVICES_POSTGRES_URL: ${OWNER_SERVICES_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/vocabulary}
+      OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE: ${OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE:-1}
+      LEXICON_STORAGE_BACKEND: ${LEXICON_STORAGE_BACKEND:-postgres}
+      LEXICON_POSTGRES_URL: ${LEXICON_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/vocabulary}
+      LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE: ${LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${LEXICON_SERVICE_HOST_PORT:-4011}:4011"
+
+  assignments-service:
+    image: node:22
+    working_dir: /app/services
+    volumes:
+      - ./:/app
+    command: >
+      sh -lc "npm install && npm --workspace @vocabulary/assignments-service run dev"
+    environment:
+      ASSIGNMENTS_SERVICE_HOST: 0.0.0.0
+      ASSIGNMENTS_SERVICE_PORT: 4012
+      LEXICON_SERVICE_HOST: lexicon-service
+      LEXICON_SERVICE_PORT: 4011
+      NLP_SERVICE_HOST: nlp-service
+      NLP_SERVICE_PORT: 8767
+      OWNER_SERVICES_STORAGE_BACKEND: ${OWNER_SERVICES_STORAGE_BACKEND:-postgres}
+      OWNER_SERVICES_POSTGRES_URL: ${OWNER_SERVICES_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/vocabulary}
+      OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE: ${OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE:-1}
+      ASSIGNMENTS_STORAGE_BACKEND: ${ASSIGNMENTS_STORAGE_BACKEND:-postgres}
+      ASSIGNMENTS_POSTGRES_URL: ${ASSIGNMENTS_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/vocabulary}
+      ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE: ${ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ASSIGNMENTS_SERVICE_HOST_PORT:-4012}:4012"
+
+  api-gateway:
+    image: node:22
+    working_dir: /app/services
+    volumes:
+      - ./:/app
+    command: >
+      sh -lc "npm install && npm --workspace @vocabulary/api-gateway run dev"
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 8765
+      GATEWAY_PARSE_BACKEND: nlp
+      GATEWAY_LEXICON_BACKEND: service
+      GATEWAY_ASSIGNMENTS_BACKEND: service
+      GATEWAY_STATISTICS_BACKEND: composed
+      GATEWAY_EXPORT_BACKEND: service
+      GATEWAY_STATIC_DIR: /app/web/dist
+      LEXICON_SERVICE_HOST: lexicon-service
+      LEXICON_SERVICE_PORT: 4011
+      ASSIGNMENTS_SERVICE_HOST: assignments-service
+      ASSIGNMENTS_SERVICE_PORT: 4012
+      NLP_SERVICE_HOST: nlp-service
+      NLP_SERVICE_PORT: 8767
+      EXPORT_SERVICE_HOST: export-service
+      EXPORT_SERVICE_PORT: 8768
+    depends_on:
+      - nlp-service
+      - export-service
+      - lexicon-service
+      - assignments-service
+    ports:
+      - "${GATEWAY_HOST_PORT:-8765}:8765"
+
+volumes:
+  postgres-data:

@@ -1,0 +1,20 @@
+name: Compose Smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  compose-postgres-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker Compose
+        run: docker compose version
+
+      - name: Run compose Postgres smoke
+        run: bash .github/scripts/compose_postgres_smoke.sh

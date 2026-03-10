@@ -1,0 +1,36 @@
+name: Python App CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate binary dependencies
+        run: |
+          python -c "import numpy; import pydantic_core; from PIL import _imaging; print('binary-deps-ok')"
+
+      - name: Run tests
+        run: |
+          python -m pytest -q
+
+      - name: Run coverage
+        run: |
+          python -m pytest --cov=core --cov=infrastructure --cov=api --cov-report=term-missing -q

@@ -1,0 +1,130 @@
+openapi: 3.1.0
+info:
+  title: Vocabulary Internal Service Contracts
+  version: 1.0.0
+servers:
+  - url: /internal/v1
+paths:
+  /nlp/parse:
+    post:
+      summary: Parse text and return final payload without SSE wrapping.
+  /nlp/parse-mwe:
+    post:
+      summary: Run second-pass MWE parsing.
+  /nlp/third-pass:
+    post:
+      summary: Run LLM third-pass extraction.
+  /nlp/pipeline-status:
+    get:
+      summary: Return current NLP pipeline availability.
+  /nlp/extract-sentence:
+    post:
+      summary: Extract example sentence for a term.
+  /lexicon/index:
+    get:
+      summary: Return normalized single-word and multi-word indexes.
+  /lexicon/search:
+    get:
+      summary: Search lexicon entries.
+  /lexicon/sync-row:
+    post:
+      summary: Sync a single parse row into the lexicon.
+  /lexicon/categories:
+    get:
+      summary: Return available lexicon categories.
+    post:
+      summary: Create a lexicon category through the owner service.
+  /lexicon/statistics:
+    get:
+      summary: Return lexicon statistics slice for gateway composition.
+  /lexicon/export-snapshot:
+    get:
+      summary: Return lexicon-owned table snapshots for downstream export generation.
+  /lexicon/entries:
+    post:
+      summary: Insert a single lexicon entry through the owner service.
+  /lexicon/entries/bulk:
+    post:
+      summary: Insert multiple lexicon entries through the owner service.
+  /lexicon/mwe/expression:
+    post:
+      summary: Upsert an MWE expression through the owner service.
+  /lexicon/mwe/sense:
+    post:
+      summary: Upsert an MWE sense through the owner service.
+  /assignments/scan:
+    post:
+      summary: Synchronous assignment scan.
+  /assignments/{assignmentId}/update:
+    put:
+      summary: Synchronous update and rescan.
+  /assignments/bulk-rescan:
+    post:
+      summary: Synchronous bulk rescan.
+  /assignments/statistics:
+    get:
+      summary: Return assignments statistics slice for gateway composition.
+  /export/lexicon.xlsx:
+    get:
+      summary: Generate and stream the Excel export.
+components:
+  schemas:
+    ParseRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        sync:
+          type: boolean
+        third_pass_enabled:
+          type: boolean
+        think_mode:
+          type: boolean
+    RowSyncRequest:
+      type: object
+      required: [token, normalized, lemma, categories]
+      properties:
+        token:
+          type: string
+        normalized:
+          type: string
+        lemma:
+          type: string
+        categories:
+          type: string
+    LexiconStatistics:
+      type: object
+      properties:
+        total_entries:
+          type: integer
+        counts_by_status:
+          type: object
+          additionalProperties:
+            type: integer
+        counts_by_source:
+          type: object
+          additionalProperties:
+            type: integer
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+    AssignmentsStatistics:
+      type: object
+      properties:
+        assignment_coverage:
+          type: array
+          items:
+            type: object
+        total_assignments:
+          type: integer
+        average_assignment_coverage:
+          type: number
+        low_coverage_count:
+          type: integer
