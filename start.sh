@@ -82,9 +82,6 @@ if [ "$POSTGRES_MODE" = "1" ] || [ "${POSTGRES_MODE:-0}" = "1" ]; then
 fi
 POSTGRES_MODE="${POSTGRES_MODE:-0}"
 
-LEGACY_BACKEND_HOST="${LEGACY_BACKEND_HOST:-127.0.0.1}"
-LEGACY_BACKEND_PORT="${LEGACY_BACKEND_PORT:-8766}"
-START_LEGACY_BACKEND="${START_LEGACY_BACKEND:-0}"
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
 GATEWAY_PORT="${GATEWAY_PORT:-8765}"
 NLP_SERVICE_HOST="${NLP_SERVICE_HOST:-127.0.0.1}"
@@ -98,7 +95,6 @@ ASSIGNMENTS_SERVICE_PORT="${ASSIGNMENTS_SERVICE_PORT:-4012}"
 OWNER_SERVICES_STORAGE_BACKEND="${OWNER_SERVICES_STORAGE_BACKEND:-}"
 OWNER_SERVICES_POSTGRES_URL="${OWNER_SERVICES_POSTGRES_URL:-postgresql://postgres:postgres@127.0.0.1:5432/vocabulary}"
 OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE="${OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE:-}"
-LEGACY_BACKEND_BASE_URL="${LEGACY_BACKEND_BASE_URL:-http://${LEGACY_BACKEND_HOST}:${LEGACY_BACKEND_PORT}}"
 GATEWAY_PARSE_BACKEND="${GATEWAY_PARSE_BACKEND:-nlp}"
 GATEWAY_LEXICON_BACKEND="${GATEWAY_LEXICON_BACKEND:-service}"
 GATEWAY_ASSIGNMENTS_BACKEND="${GATEWAY_ASSIGNMENTS_BACKEND:-service}"
@@ -129,7 +125,6 @@ fi
 if $PRINT_CONFIG; then
   cat <<EOF
 POSTGRES_MODE=$POSTGRES_MODE
-START_LEGACY_BACKEND=$START_LEGACY_BACKEND
 GATEWAY_PARSE_BACKEND=$GATEWAY_PARSE_BACKEND
 GATEWAY_LEXICON_BACKEND=$GATEWAY_LEXICON_BACKEND
 GATEWAY_ASSIGNMENTS_BACKEND=$GATEWAY_ASSIGNMENTS_BACKEND
@@ -152,7 +147,7 @@ fi
 
 if $DEV_MODE; then
   echo "[start] Starting Vite dev server in background..."
-  cd web && npm run dev &
+  cd frontend && npm run dev &
   PIDS+=("$!")
   cd "$SCRIPT_DIR"
   echo "[start] Vite PID: ${PIDS[${#PIDS[@]}-1]}"
@@ -160,29 +155,21 @@ fi
 
 if $BUILD_FRONTEND; then
   echo "[start] Building frontend..."
-  cd web && npm run build
+  cd frontend && npm run build
   cd "$SCRIPT_DIR"
   echo "[start] Frontend build complete."
 fi
 
-if [ ! -d services/node_modules ]; then
+if [ ! -d backend/services/node_modules ]; then
   echo "[start] Installing service workspace dependencies..."
-  cd services && npm install
+  cd backend/services && npm install
   cd "$SCRIPT_DIR"
 fi
 
-if ! $DEV_MODE && [ ! -d web/dist ]; then
+if ! $DEV_MODE && [ ! -d frontend/dist ]; then
   echo "[start] Built frontend not found; enabling gateway static build..."
-  cd web && npm run build
+  cd frontend && npm run build
   cd "$SCRIPT_DIR"
-fi
-
-if [ "$START_LEGACY_BACKEND" = "1" ]; then
-  echo "[start] Starting legacy backend on http://${LEGACY_BACKEND_HOST}:${LEGACY_BACKEND_PORT} ..."
-  LEGACY_BACKEND_HOST="$LEGACY_BACKEND_HOST" LEGACY_BACKEND_PORT="$LEGACY_BACKEND_PORT" python3 main_web.py &
-  PIDS+=("$!")
-else
-  echo "[start] Skipping legacy backend (set START_LEGACY_BACKEND=1 to enable fallback runtime)."
 fi
 
 echo "[start] Starting NLP capability service on http://${NLP_SERVICE_HOST}:${NLP_SERVICE_PORT} ..."
@@ -190,7 +177,7 @@ LEXICON_SERVICE_HOST="$LEXICON_SERVICE_HOST" \
 LEXICON_SERVICE_PORT="$LEXICON_SERVICE_PORT" \
 NLP_SERVICE_HOST="$NLP_SERVICE_HOST" \
 NLP_SERVICE_PORT="$NLP_SERVICE_PORT" \
-python3 main_nlp.py &
+python3 -m backend.python_services.nlp_service.main &
 PIDS+=("$!")
 
 echo "[start] Starting export capability service on http://${EXPORT_SERVICE_HOST}:${EXPORT_SERVICE_PORT} ..."
@@ -198,32 +185,32 @@ LEXICON_SERVICE_HOST="$LEXICON_SERVICE_HOST" \
 LEXICON_SERVICE_PORT="$LEXICON_SERVICE_PORT" \
 EXPORT_SERVICE_HOST="$EXPORT_SERVICE_HOST" \
 EXPORT_SERVICE_PORT="$EXPORT_SERVICE_PORT" \
-python3 main_export.py &
+python3 -m backend.python_services.export_service.main &
 PIDS+=("$!")
 
 echo "[start] Starting lexicon service on http://${LEXICON_SERVICE_HOST}:${LEXICON_SERVICE_PORT} ..."
 (
-  export LEGACY_BACKEND_BASE_URL LEXICON_SERVICE_HOST LEXICON_SERVICE_PORT
+  export LEXICON_SERVICE_HOST LEXICON_SERVICE_PORT
   export OWNER_SERVICES_STORAGE_BACKEND OWNER_SERVICES_POSTGRES_URL OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE
   export LEXICON_STORAGE_BACKEND LEXICON_POSTGRES_URL LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE LEXICON_POSTGRES_SCHEMA
-  cd services
+  cd backend/services
   npm --workspace @vocabulary/lexicon-service run dev
 ) &
 PIDS+=("$!")
 
 echo "[start] Starting assignments service on http://${ASSIGNMENTS_SERVICE_HOST}:${ASSIGNMENTS_SERVICE_PORT} ..."
 (
-  export LEGACY_BACKEND_BASE_URL ASSIGNMENTS_SERVICE_HOST ASSIGNMENTS_SERVICE_PORT
+  export ASSIGNMENTS_SERVICE_HOST ASSIGNMENTS_SERVICE_PORT
   export OWNER_SERVICES_STORAGE_BACKEND OWNER_SERVICES_POSTGRES_URL OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE
   export ASSIGNMENTS_STORAGE_BACKEND ASSIGNMENTS_POSTGRES_URL ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE ASSIGNMENTS_POSTGRES_SCHEMA
-  cd services
+  cd backend/services
   npm --workspace @vocabulary/assignments-service run dev
 ) &
 PIDS+=("$!")
 
 echo "[start] Starting gateway on http://${GATEWAY_HOST}:${GATEWAY_PORT} ..."
 (
-  export LEGACY_BACKEND_BASE_URL GATEWAY_HOST GATEWAY_PORT NLP_SERVICE_HOST NLP_SERVICE_PORT
+  export GATEWAY_HOST GATEWAY_PORT NLP_SERVICE_HOST NLP_SERVICE_PORT
   export EXPORT_SERVICE_HOST EXPORT_SERVICE_PORT LEXICON_SERVICE_HOST LEXICON_SERVICE_PORT
   export ASSIGNMENTS_SERVICE_HOST ASSIGNMENTS_SERVICE_PORT
   export GATEWAY_PARSE_BACKEND GATEWAY_LEXICON_BACKEND GATEWAY_ASSIGNMENTS_BACKEND
@@ -231,7 +218,7 @@ echo "[start] Starting gateway on http://${GATEWAY_HOST}:${GATEWAY_PORT} ..."
   if $DEV_MODE; then
     export GATEWAY_SERVE_STATIC=0
   fi
-  cd services
+  cd backend/services
   npm --workspace @vocabulary/api-gateway run dev
 ) &
 PIDS+=("$!")

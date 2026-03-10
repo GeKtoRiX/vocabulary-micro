@@ -1,1 +1,1 @@
-"""Локальные skill-модули для self-contained tooling репозитория."""
+"""Compatibility-layer для исторических импортов `skills.*`."""

@@ -15,26 +15,13 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  legacy-backend:
-    image: python:3.12-slim
-    working_dir: /app
-    volumes:
-      - ./:/app
-    command: >
-      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python main_web.py"
-    environment:
-      LEGACY_BACKEND_HOST: 0.0.0.0
-      LEGACY_BACKEND_PORT: 8766
-    ports:
-      - "${LEGACY_BACKEND_HOST_PORT:-8766}:8766"
-
   nlp-service:
     image: python:3.12-slim
     working_dir: /app
     volumes:
       - ./:/app
     command: >
-      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python main_nlp.py"
+      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python -m backend.python_services.nlp_service.main"
     environment:
       NLP_SERVICE_HOST: 0.0.0.0
       NLP_SERVICE_PORT: 8767
@@ -51,7 +38,7 @@ services:
     volumes:
       - ./:/app
     command: >
-      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python main_export.py"
+      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python -m backend.python_services.export_service.main"
     environment:
       EXPORT_SERVICE_HOST: 0.0.0.0
       EXPORT_SERVICE_PORT: 8768
@@ -64,7 +51,7 @@ services:
 
   lexicon-service:
     image: node:22
-    working_dir: /app/services
+    working_dir: /app/backend/services
     volumes:
       - ./:/app
     command: >
@@ -87,7 +74,7 @@ services:
 
   assignments-service:
     image: node:22
-    working_dir: /app/services
+    working_dir: /app/backend/services
     volumes:
       - ./:/app
     command: >
@@ -114,7 +101,7 @@ services:
 
   api-gateway:
     image: node:22
-    working_dir: /app/services
+    working_dir: /app/backend/services
     volumes:
       - ./:/app
     command: >
@@ -127,7 +114,7 @@ services:
       GATEWAY_ASSIGNMENTS_BACKEND: service
       GATEWAY_STATISTICS_BACKEND: composed
       GATEWAY_EXPORT_BACKEND: service
-      GATEWAY_STATIC_DIR: /app/web/dist
+      GATEWAY_STATIC_DIR: /app/frontend/dist
       LEXICON_SERVICE_HOST: lexicon-service
       LEXICON_SERVICE_PORT: 4011
       ASSIGNMENTS_SERVICE_HOST: assignments-service

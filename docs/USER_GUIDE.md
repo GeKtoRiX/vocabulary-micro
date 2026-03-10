@@ -12,20 +12,18 @@ This guide explains how to work with the agent safely and effectively in this re
 
 Data flow:
 
-`Web SPA → FastAPI (api/) → Core Use Cases → Infrastructure Adapters → SQLite`
-
-Migration slice:
-
-`Web SPA → api-gateway → JS boundary services / Python capability APIs / legacy backend`
+`Web SPA → api-gateway → JS boundary services / Python capability APIs`
 
 Layer responsibilities:
 
-- `core/`: domain contracts, DTOs, use cases, pure services — **never add external deps here**
-- `infrastructure/`: SQLite engines, adapters, config, logging, startup, migrations
-- `api/`: FastAPI routes, schemas, SSE job registry, dependency injection
-- `web/`: React 19 SPA — tabs, hooks, components
-- `services/`: Fastify gateway and boundary services
-- `python_services/`: internal Python capability APIs
+- `frontend/`: React 19 SPA — tabs, hooks, components
+- `backend/services/`: Fastify gateway and boundary services
+- `backend/python_services/core/`: canonical domain contracts, DTOs, use cases, pure services — **never add external deps here**
+- `backend/python_services/infrastructure/`: canonical NLP/runtime adapters, config, logging, warmup/bootstrap
+- `backend/python_services/`: internal Python capability APIs
+- `agents/`: реализация agent tooling и локальных skills
+- `tests/backend/`: продуктовые runtime/unit/integration тесты
+- `tests/governance/`: проверки bootstrap/governance/tooling-контура
 
 Current migration ownership:
 
@@ -33,9 +31,7 @@ Current migration ownership:
 - `assignments-service` is the active owner for assignments CRUD/scan/update/rescan/quick-add/statistics
 - `nlp-service` is the default parse backend for `/api/parse` and `/api/system/warmup`
 - `export-service` is the default export backend for `/api/lexicon/export`
-- legacy FastAPI runtime is kept as compatibility fallback and parity reference, not as the primary path
-
-Composition root: `infrastructure/bootstrap/web_builder.py`
+- Python runtime is reduced to capability services only: `nlp-service` and `export-service`
 
 ## 3. Running the App
 
@@ -46,12 +42,9 @@ Composition root: `infrastructure/bootstrap/web_builder.py`
 ./start.sh --build             # build frontend, then start gateway + services
 ./start.sh --dev               # Vite dev server + gateway + services
 
-# Legacy backend only
-LEGACY_BACKEND_PORT=8766 python3 main_web.py
-
 # Capability APIs
-python3 main_nlp.py
-python3 main_export.py
+python3 -m backend.python_services.nlp_service.main
+python3 -m backend.python_services.export_service.main
 ```
 
 Env templates:
@@ -89,17 +82,10 @@ Explicit Compose SQLite fallback:
 docker compose --env-file .env.compose.sqlite up
 ```
 
-## 4. Assignment Speech Wiring
+## 4. Storage and Isolation
 
-- Speech use case: `ManageAssignmentSpeechInteractor`
-- Generation policy:
-  - reuse latest existing audio when file exists (`assignment_speech_reused_existing_audio`)
-  - otherwise synthesize and persist metadata (`assignment_speech_generated`)
-
-## 5. Storage and Isolation
-
-- Lexicon DB: `infrastructure/runtime/data/lexicon.sqlite3`
-- Assignments DB: `infrastructure/runtime/data/assignments.db` (includes `assignment_audio` metadata)
+- Lexicon DB: `backend/python_services/infrastructure/persistence/data/lexicon.sqlite3`
+- Assignments DB: `backend/python_services/infrastructure/persistence/data/assignments.db`
 - Both owner services support `sqlite|postgres` storage backends via `LEXICON_STORAGE_BACKEND` and `ASSIGNMENTS_STORAGE_BACKEND`
 - In Postgres mode, owner data is isolated by schema: `LEXICON_POSTGRES_SCHEMA=lexicon` and `ASSIGNMENTS_POSTGRES_SCHEMA=assignments`
 
@@ -110,7 +96,7 @@ Critical invariant:
 
 Assignments operation order: `sync → scan`.
 
-## 6. Assignments: Result Semantics
+## 5. Assignments: Result Semantics
 
 After scan, you get:
 
@@ -124,7 +110,7 @@ Coverage status rules:
 - known statuses: `approved`, `pending_review`
 - `rejected` is excluded from known coverage by default
 
-## 7. Web UI Quick Orientation
+## 6. Web UI Quick Orientation
 
 ### Parse tab
 
@@ -142,7 +128,7 @@ Scan SSE + audio playback + quick-add flow. Bulk rescan and bulk delete supporte
 
 KPI cards + canvas bar chart (top-12 coverage) + status/source breakdown + low-coverage list.
 
-## 8. TRF → LLM Gate Policy
+## 7. TRF → LLM Gate Policy
 
 Threshold: `ParseSyncSettings.trf_confidence_threshold` (env `TRF_CONFIDENCE_THRESHOLD`, default `0.8`).
 
@@ -154,12 +140,12 @@ Required reason codes:
 - `validation_no_trf_signal_fallback`
 - `validation_trf_not_uncertain`
 
-## 9. Required Checks
+## 8. Required Checks
 
 ### Architecture boundaries
 
 ```bash
-python3 -m pytest -q tests/architecture/test_import_boundaries.py
+python3 -m pytest -q tests/backend/architecture/test_import_boundaries.py
 ```
 
 ### Full suite
@@ -171,7 +157,7 @@ python3 -m pytest -q tests/
 ### Postgres cutover smoke
 
 ```bash
-RUN_DOCKER_SMOKE=1 python3 -m pytest -q tests/integration/test_postgres_cutover_smoke.py
+RUN_DOCKER_SMOKE=1 python3 -m pytest -q tests/backend/integration/test_postgres_cutover_smoke.py
 ```
 
 ### Compose Postgres smoke
@@ -183,10 +169,10 @@ bash .github/scripts/compose_postgres_smoke.sh
 ### Frontend build
 
 ```bash
-cd web && npm run build
+cd frontend && npm run build
 ```
 
-## 10. Prompting Pattern That Works Well
+## 9. Prompting Pattern That Works Well
 
 Recommended request structure:
 

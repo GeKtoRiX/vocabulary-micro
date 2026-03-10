@@ -6,12 +6,12 @@ Web application for lexicon management, parse/sync workflows, assignments analys
 
 The repository now contains a runnable migration slice for the backend split:
 
-- `services/api-gateway/` - public `TypeScript + Fastify` gateway for `/api/*`
-- `services/lexicon-service/` - JS lexicon boundary service
-- `services/assignments-service/` - JS assignments boundary service
-- `python_services/nlp_app.py` - internal Python NLP capability API
-- `python_services/export_app.py` - internal Python export capability API
-- `services/contracts/internal-v1.openapi.yaml` - source-of-truth internal service contract
+- `backend/services/api-gateway/` - public `TypeScript + Fastify` gateway for `/api/*`
+- `backend/services/lexicon-service/` - JS lexicon boundary service
+- `backend/services/assignments-service/` - JS assignments boundary service
+- `backend/python_services/nlp_service/app.py` - internal Python NLP capability API
+- `backend/python_services/export_service/app.py` - internal Python export capability API
+- `backend/services/contracts/internal-v1.openapi.yaml` - source-of-truth internal service contract
 
 Current implementation is transitional by design:
 
@@ -24,15 +24,14 @@ Current implementation is transitional by design:
 - `export-service` builds Excel exports from `lexicon-service` API snapshots instead of reading SQLite directly
 - `lexicon-service` now supports `LEXICON_STORAGE_BACKEND=sqlite|postgres`; SQLite remains default
 - both owner services also support shared runtime toggles via `OWNER_SERVICES_STORAGE_BACKEND`, `OWNER_SERVICES_POSTGRES_URL`, and `OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE`
-- legacy Python backend remains the execution engine for flows not yet reimplemented in JS
 - routing is controlled with feature flags such as `GATEWAY_PARSE_BACKEND`, `GATEWAY_LEXICON_BACKEND`, `GATEWAY_ASSIGNMENTS_BACKEND`
 
 ## Installation
 
 ```bash
 pip install -r requirements.txt
-cd web && npm install
-cd ../services && npm install
+cd frontend && npm install
+cd ../backend/services && npm install
 ```
 
 Optional local env templates:
@@ -58,11 +57,9 @@ cp .env.compose.sqlite.example .env.compose.sqlite
 Or directly:
 
 ```bash
-START_LEGACY_BACKEND=1 ./start.sh  # optional legacy backend fallback
-python3 main_web.py     # legacy Python backend only
-python3 main_nlp.py     # internal NLP capability API
-python3 main_export.py  # internal export capability API
-cd services && npm --workspace @vocabulary/api-gateway run dev
+python3 -m backend.python_services.nlp_service.main     # internal NLP capability API
+python3 -m backend.python_services.export_service.main  # internal export capability API
+cd backend/services && npm --workspace @vocabulary/api-gateway run dev
 
 OWNER_SERVICES_POSTGRES_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocabulary \
 ./start.sh --postgres
@@ -97,15 +94,20 @@ docker compose --env-file .env.compose.sqlite up
 Clean Architecture with strict dependency boundaries:
 
 ```
-core/           domain models, interfaces, use cases (no external deps)
-infrastructure/ SQLite adapters, bootstrap, config, logging, migrations
-api/            FastAPI routes, schemas, SSE job registry
-web/            React 18 + Vite + TypeScript + TanStack Query SPA
-services/       TypeScript gateway and boundary microservices
-python_services/ internal Python capability APIs
+frontend/                React + Vite + TypeScript SPA
+backend/services/        TypeScript gateway and boundary microservices
+backend/python_services/ internal Python capability APIs + shared Python runtime
+core/                    compatibility shim package for historical `core.*` imports
+infrastructure/          compatibility shim package for historical `infrastructure.*` imports
+agents/                   agent tooling and local skills implementation
+tests/backend/            backend/runtime/unit/integration test suites
+tests/governance/         governance and agent-tooling checks
 ```
 
-Composition root: `infrastructure/bootstrap/web_builder.py`
+Agent support files are intentionally split into two layers:
+
+- `agents/` contains the real implementations for local skills and tooling.
+- root `tools.py` and `skills/` remain as compatibility entrypoints for existing imports and agent workflows.
 
 ### SSE Jobs pattern
 
@@ -159,7 +161,13 @@ python3 -m pytest -q tests/
 Architecture boundary checks:
 
 ```bash
-python3 -m pytest -q tests/architecture/
+python3 -m pytest -q tests/backend/architecture/
+```
+
+Governance / agent-tooling checks:
+
+```bash
+python3 -m pytest -q tests/governance/tools/
 ```
 
 Compose smoke in CI:
@@ -170,6 +178,6 @@ bash .github/scripts/compose_postgres_smoke.sh
 
 ## Data Storage
 
-- Lexicon DB: `infrastructure/runtime/data/lexicon.sqlite3`
-- Assignments DB: `infrastructure/runtime/data/assignments.db`
+- Lexicon DB: `backend/python_services/infrastructure/persistence/data/lexicon.sqlite3`
+- Assignments DB: `backend/python_services/infrastructure/persistence/data/assignments.db`
 # vocabulary-micro

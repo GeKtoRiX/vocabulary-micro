@@ -29,33 +29,36 @@
 from tools import execute_tool, list_tools
 
 execute_tool("inspect_repository")                               # структура репозитория
-execute_tool("audit_import_boundaries")                         # проверка границ core/ui
+execute_tool("audit_import_boundaries")                         # проверка границ backend/python_services/core ↔ frontend
 execute_tool("audit_docs_sync")                                 # AGENTS.md ↔ docs/agents.md
-execute_tool("run_pytest", {"target": "tests/architecture/"})   # архитектурные тесты
+execute_tool("run_pytest", {"target": "tests/backend/architecture/"})   # архитектурные тесты
 execute_tool("NaturalLanguageQuery", {"query": "..."})          # запрос к SQLite на естественном языке
 ```
 
 ## Обязательные проверки перед финишем
 
 ```bash
-python3 -m pytest -q tests/architecture/test_import_boundaries.py
-python3 -m pytest -q tests/unit/tools/test_governance_bootstrap.py
+python3 -m pytest -q tests/backend/architecture/test_import_boundaries.py
+python3 -m pytest -q tests/governance/tools/test_governance_bootstrap.py
 python3 -m pytest -q tests/
 ```
 
-При изменении frontend: `cd web && npm run build`.
+При изменении frontend: `cd frontend && npm run build`.
 
 ## Карта проекта
 
 Подробно: [`docs/LLM_PROJECT_MAP.md`](docs/LLM_PROJECT_MAP.md)
 
 ```
-core/              — доменные контракты и use case (без внешних зависимостей, не трогать)
-infrastructure/    — адаптеры, SQLite/Postgres, bootstrap
-api/               — FastAPI routes, SSE job registry
-web/               — React 19 + Vite 7 SPA
-services/          — TypeScript Fastify gateway + owner-services
-python_services/   — внутренние Python capability API
-tools.py           — типизированный реестр инструментов аудита
-skills/            — вспомогательные модули для tools.py
+frontend/          — React 19 + Vite 7 SPA
+backend/           — runtime backend: gateway, owner-services, Python capability API
+backend/python_services/core/           — канонический Python domain/use case слой
+backend/python_services/infrastructure/ — канонический Python adapters/runtime слой
+core/              — compatibility shim для исторических импортов `core.*`
+infrastructure/    — compatibility shim для исторических импортов `infrastructure.*`
+agents/            — реализация агентного tooling и skill-модулей
+tests/backend/     — runtime и unit/integration проверки продукта
+tests/governance/  — проверки agent/governance-контура
+tools.py           — compatibility entrypoint для реестра инструментов
+skills/            — compatibility entrypoint для исторических импортов `skills.*`
 ```

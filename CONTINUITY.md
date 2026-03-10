@@ -1,7 +1,7 @@
 # CONTINUITY.md
 
 ## Current Task
-Postgres-first cutover hardening migration backend и runtime parity.
+Перенос `core` и `infrastructure` в канонический backend Python layout.
 
 ## Progress
 100%
@@ -10,7 +10,7 @@ Postgres-first cutover hardening migration backend и runtime parity.
 Ничем не заблокировано.
 
 ## Next Step
-Следующим шагом зафиксировать rollback/failure matrix для `GATEWAY_*_BACKEND` в compose/host-run и затем перевести default operator docs/CI на Postgres-first runtime без legacy как primary path.
+Решить, нужен ли отдельный import-cutover от compatibility shim-пакетов `core`/`infrastructure` к явным imports через `backend.python_services.*`, или shim-слой остаётся долгосрочно.
 
 ## Last Updated
 2026-03-10

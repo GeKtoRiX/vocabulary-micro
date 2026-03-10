@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import create_autospec
 import pytest
 
 from core.domain import (
     CategoryMutationResult,
-    ExportResult,
     ICategoryRepository,
-    IExportService,
     ILexiconRepository,
     LexiconEntryRecord,
     LexiconMutationResult,
@@ -94,18 +93,8 @@ def sample_category_mutation_result() -> CategoryMutationResult:
 
 
 @pytest.fixture
-def sample_export_result(tmp_path: Path) -> ExportResult:
-    return ExportResult(
-        success=True,
-        message="Exported successfully.",
-        output_path=tmp_path / "export.xlsx",
-        stats={"table_count": 1, "row_count": 3},
-    )
-
-
-@pytest.fixture
-def mock_lexicon_repository(mocker: pytest.MockFixture) -> ILexiconRepository:
-    repo = mocker.create_autospec(ILexiconRepository, instance=True)
+def mock_lexicon_repository() -> ILexiconRepository:
+    repo = create_autospec(ILexiconRepository, instance=True)
     repo.parse_text.return_value = {"tokens": [], "stats": {}, "phrase_matches": []}
     repo.parse_mwe_text.return_value = {}
     repo.pipeline_status.return_value = {"status": "ok"}
@@ -132,8 +121,8 @@ def mock_lexicon_repository(mocker: pytest.MockFixture) -> ILexiconRepository:
 
 
 @pytest.fixture
-def mock_category_repository(mocker: pytest.MockFixture) -> ICategoryRepository:
-    repo = mocker.create_autospec(ICategoryRepository, instance=True)
+def mock_category_repository() -> ICategoryRepository:
+    repo = create_autospec(ICategoryRepository, instance=True)
     repo.list_categories.return_value = ["Noun", "Verb"]
     repo.create_category.return_value = CategoryMutationResult(
         categories=["Noun", "Verb", "Adjective"],
@@ -144,10 +133,3 @@ def mock_category_repository(mocker: pytest.MockFixture) -> ICategoryRepository:
         message="Category deleted.",
     )
     return repo
-
-
-@pytest.fixture
-def mock_export_service(mocker: pytest.MockFixture, sample_export_result: ExportResult) -> IExportService:
-    service = mocker.create_autospec(IExportService, instance=True)
-    service.export_to_excel.return_value = sample_export_result
-    return service
