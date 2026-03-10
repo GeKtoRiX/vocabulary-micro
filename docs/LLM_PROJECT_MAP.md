@@ -15,15 +15,23 @@ It answers:
 
 ```
 main_web.py          — thin entry point: uvicorn api.main:app :8765
-start.sh             — bash launcher (--build / --dev flags)
+main_nlp.py          — standalone NLP capability server entry point
+main_export.py       — standalone export capability server entry point
+start.sh             — bash launcher (--build / --dev / --postgres / --print-config)
+tools.py             — typed tool registry for audits and repository inspection
+AGENTS.md            — policy document for OpenAI Codex (auto-loaded)
+CLAUDE.md            — policy document for Claude Code / Anthropic agents (auto-loaded)
+MEMORY.md            — project long-term memory; update on architectural decisions
+CONTINUITY.md        — session recovery point; update after each completed step
 core/                — framework-agnostic contracts, DTOs, use cases
-infrastructure/      — adapters, SQLite engines, config, startup, logging, migrations
+infrastructure/      — adapters, SQLite engines, config, startup, logging
 api/                 — FastAPI routes, schemas, SSE job registry
 web/                 — React 19 + Vite 7 SPA (TypeScript + TanStack Query)
 services/            — TypeScript Fastify gateway + boundary services
 python_services/     — internal Python capability APIs
-tools.py             — typed tool registry for audits and repository inspection
-tests/               — architecture, unit, runtime, concurrency checks
+skills/              — auxiliary modules for tools.py (guardians, semantic engine)
+docs/                — project maps and guides for agents and operators
+tests/               — architecture, unit, integration, runtime, concurrency, services
 ```
 
 ## 3) Non-Negotiable Boundaries
@@ -31,7 +39,7 @@ tests/               — architecture, unit, runtime, concurrency checks
 - `core` must not import `infrastructure` or `api`
 - `api` must not import `infrastructure` directly (only via DI in `dependencies.py`)
 - SQL and `sqlite3` belong to `infrastructure` only
-- `main_web.py` is lifecycle/composition only
+- `main_web.py`, `main_nlp.py`, `main_export.py` are lifecycle/composition only
 
 Boundary tests:
 
@@ -39,7 +47,7 @@ Boundary tests:
 
 ## 4) Composition Root
 
-Startup chain:
+Startup chain (web mode):
 
 ```
 main_web.py
@@ -67,8 +75,8 @@ web
   → services/api-gateway
       → services/lexicon-service
       → services/assignments-service
-      → python_services/nlp_app.py
-      → python_services/export_app.py
+      → main_nlp.py  →  python_services/nlp_app.py   (/internal/v1/nlp/*)
+      → main_export.py  →  python_services/export_app.py  (/internal/v1/export/*)
       → main_web.py (legacy execution engine during migration)
 ```
 
@@ -79,16 +87,21 @@ web
 - `core/domain/models.py`
 - `core/domain/reason_codes.py`
 - `core/domain/lexicon_repository.py`
+- `core/domain/category_repository.py`
 - `core/domain/assignment_repository.py`
 - `core/domain/assignment_audio_repository.py`
 - `core/domain/assignment_speech_port.py`
-- `core/domain/statistics.py`
+- `core/domain/sentence_extractor.py`
+- `core/domain/parse_sync_settings.py`
+- `core/domain/logging_service.py`
+- `core/domain/statistics.py` (via use_cases/statistics.py)
 
 ### Key services
 
 - `core/domain/services/mwe_detector.py`
 - `core/domain/services/assignment_scanner_service.py`
 - `core/domain/services/text_processor.py`
+- `core/domain/services/sync_queue.py` — ISyncQueue interface
 
 ### Key use cases
 
@@ -98,8 +111,10 @@ web
 - `core/use_cases/third_pass_orchestrator.py`
 - `core/use_cases/parse_table_builder.py`
 - `core/use_cases/manage_lexicon.py`
+- `core/use_cases/manage_categories.py`
 - `core/use_cases/manage_assignments.py`
 - `core/use_cases/manage_assignment_speech.py`
+- `core/use_cases/export_lexicon.py`
 - `core/use_cases/statistics.py`
 
 ## 6) Infrastructure Layer
@@ -108,7 +123,8 @@ web
 
 All domain interface implementations:
 
-- `lexicon_gateway.py` — `ILexiconRepository` + `ICategoryRepository`
+- `lexicon_gateway.py` — `ILexiconRepository` + `ICategoryRepository` (SQLite)
+- `http_lexicon_gateway.py` — `ILexiconRepository` over HTTP (migration slice)
 - `assignment_gateway.py` — `IAssignmentRepository` + `IAssignmentAudioRepository`
 - `export_service.py` — `IExportService` (Excel)
 - `sync_queue_adapter.py` — `ISyncQueue` (persistent SQLite-backed queue)
@@ -122,9 +138,19 @@ Low-level engines only — no domain interface implementations:
 - `management_store.py`, `sqlite_repository.py`
 - `index_provider.py`, `mwe_index_provider.py`
 - `mwe_second_pass_engine.py`, `mwe_candidate_detector.py`, `mwe_disambiguator.py`
+- `mwe_models.py` — MWE data models
 - `semantic_matcher.py`, `exact_matcher.py`, `phrase_matcher.py`
 - `lemma_inflect_matcher.py`, `wordnet_matcher.py`, `tokenizer.py`
 - `assignment_sentence_extractor.py`, `table_models.py`
+- `text_utils.py` — shared text normalization helpers
+
+### Logging (`infrastructure/logging/`)
+
+- `app_logger.py` — application-level logger factory
+- `file_logger.py` — file sink handler
+- `json_logger.py` — structured JSON formatter
+- `metrics.py` — lightweight counter/timing helpers
+- `tracing.py` — request tracing utilities
 
 ### Migrations (`infrastructure/migrations/`)
 
@@ -140,12 +166,20 @@ SQL files applied automatically by `StartupService` on startup.
 - `assignments.py` — scan SSE, CRUD, audio, quick-add, bulk ops
 - `statistics.py` — `GET /api/statistics`
 
+### Schemas (`api/schemas/`)
+
+- `lexicon_schemas.py` — Pydantic request/response models for lexicon routes
+- `assignment_schemas.py` — Pydantic models for assignments routes
+- `parse_schemas.py` — Pydantic models for parse routes
+
 ### SSE Jobs pattern
 
 ```
 POST /api/.../                    → { job_id }
 GET  /api/.../jobs/{id}/stream    → SSE: progress / result / done / error
 ```
+
+`api/jobs.py` — in-process SSE job registry (stores active job state)
 
 ### DI (`api/dependencies.py`)
 
@@ -161,11 +195,18 @@ Module-level singletons initialized in lifespan:
 
 ## 7.1) Service Layer (Migration)
 
-- `services/api-gateway/` — public `/api` facade, SSE owned here
-- `services/lexicon-service/` — lexicon owner service for CRUD, category mutations, stats, index, and row sync over `sqlite|postgres`
-- `services/assignments-service/` — assignments owner service for CRUD, scan/update/rescan, quick-add, and stats over `sqlite|postgres`
-- `python_services/nlp_app.py` — default parse capability backend for `/internal/v1/nlp/*`; reads lexicon/MWE state via `lexicon-service` internal APIs
-- `python_services/export_app.py` — `/internal/v1/export/*`, now snapshot-based via `lexicon-service`
+- `services/api-gateway/src/app.ts` — public `/api` facade, SSE owned here
+- `services/api-gateway/src/jobs.ts` — gateway-side SSE job tracking
+- `services/lexicon-service/` — lexicon owner: CRUD, category mutations, stats, index, row sync over `sqlite|postgres`
+- `services/assignments-service/` — assignments owner: CRUD, scan/update/rescan, quick-add, stats over `sqlite|postgres`
+  - `repository.ts` — SQLite storage layer
+  - `postgres_repository.ts` — Postgres storage layer
+  - `scanner.ts` — assignment scanner logic
+  - `storage.ts` — storage interface
+- `services/shared/src/` — shared utilities: `config.ts`, `http.ts`, `legacy.ts`, `postgres_migrations.ts`
+- `python_services/nlp_app.py` — `/internal/v1/nlp/*`; reads lexicon/MWE state via `lexicon-service`
+- `python_services/export_app.py` — `/internal/v1/export/*`, snapshot-based via `lexicon-service`
+- `python_services/nlp_components.py` — NLP component wiring shared between nlp_app and legacy path
 - `services/contracts/internal-v1.openapi.yaml` — internal contract baseline
 
 ## 8) Web Layer (`web/`)
@@ -174,9 +215,14 @@ React 19 + Vite 7 SPA, served from `web/dist/` as FastAPI static files.
 
 - `web/src/App.tsx` — tab shell, WarmupBanner, QueryClientProvider
 - `web/src/api/client.ts` — fetch wrapper, `openSSEStream()`
+- `web/src/api/types.ts` — shared TypeScript API types
 - `web/src/hooks/useSSEJob.ts` — POST → SSE → `{status, result}`
+- `web/src/hooks/useAppOverview.ts` — aggregated app state hook
+- `web/src/hooks/useAudio.ts` — audio playback state hook
+- `web/src/hooks/useWarmup.ts` — AI warmup polling hook
 - `web/src/tabs/` — ParseTab, LexiconTab, AssignmentsTab, StatisticsTab
-- `web/src/components/` — SortableTable, Modal, Toast, KpiCard, ContextMenu, AudioPlayer
+- `web/src/components/` — SortableTable, Modal, Toast, KpiCard, ContextMenu, AudioPlayer, SectionMessage, StatusBadge
+- `web/src/utils/format.ts` — shared formatting utilities
 
 Build: `cd web && npm run build` → `web/dist/`
 
@@ -214,16 +260,61 @@ Build: `cd web && npm run build` → `web/dist/`
 
 ## 10) Tooling
 
-- `tools.py` — typed tool registry: `inspect_repository`, `audit_import_boundaries`, `run_pytest`, `NaturalLanguageQuery`
+### Agent entry points (auto-loaded)
+- `AGENTS.md` — policy-документ для OpenAI Codex
+- `CLAUDE.md` — policy-документ для Claude Code / Anthropic агентов
+- `MEMORY.md` — долговременная память проекта; обновлять при архитектурных решениях
+- `CONTINUITY.md` — точка восстановления сессии; обновлять после каждого завершённого шага
+
+### Tool registry
+- `tools.py` — typed tool registry: `inspect_repository`, `audit_import_boundaries`, `audit_docs_sync`, `run_pytest`, `NaturalLanguageQuery`
+- `skills/docs_sync_guardian.py` — аудит синхронизации `AGENTS.md` ↔ `docs/agents.md`
+- `skills/system_health_guardian.py` — аудит запрещённых импортов в UI-слое
+- `skills/semantic_query_engine.py` — fallback stub для natural-language query
 - `tests/unit/tools/test_tools_registry.py` — tests for tools.py
+- `tests/unit/tools/test_governance_bootstrap.py` — проверка наличия и структуры governance-файлов
+
+### Scripts
 - `cleanup_data.bat` — Windows batch script for DB/cache cleanup
 - `start.sh` — bash launcher (`--build`, `--dev` flags)
 - `start.sh --postgres` — owner services on Postgres via shared `OWNER_SERVICES_*` env defaults
 - `start.sh --print-config` — inspect resolved runtime config after `.env`/profile loading
 - `.env.example`, `.env.postgres.example`, `.env.compose.postgres.example` — local runtime templates for SQLite default and Postgres-first flows
-- `docker-compose.yml` — Postgres-first compose runtime; SQLite compose fallback lives in `.env.compose.sqlite.example`
+- `.env.compose.sqlite.example` — SQLite compose fallback template
+- `docker-compose.yml` — Postgres-first compose runtime
+- `requirements.compose.txt` — additional requirements for compose deployments
 
-## 11) Mandatory Quality Gates
+## 11) Test Coverage Map
+
+```
+tests/
+├── architecture/          — import boundary checks (AST-based, fast)
+├── concurrency/           — shutdown race condition tests
+├── integration/           — Postgres cutover smoke (requires Docker)
+├── services/              — TypeScript service tests (vitest)
+│   ├── test_assignments_scanner.test.ts
+│   ├── test_assignments_service.test.ts
+│   ├── test_gateway_export_headers.test.ts
+│   ├── test_gateway_failure_modes.test.ts
+│   ├── test_gateway_jobs.test.ts
+│   ├── test_gateway_legacy_contract.test.ts
+│   ├── test_gateway_statistics.test.ts
+│   ├── test_legacy_sse.test.ts
+│   ├── test_lexicon_bootstrap.test.ts
+│   ├── test_lexicon_service.test.ts
+│   ├── test_service_smoke.test.ts
+│   ├── test_shared_config.test.ts
+│   ├── test_shared_http.test.ts
+│   └── test_python_internal_services.py
+└── unit/
+    ├── core/domain/       — domain models and services
+    ├── core/use_cases/    — use case interactors
+    ├── infrastructure/    — adapters, SQLite engines, bootstrap, config, logging
+    ├── runtime/           — startup and warmup integration
+    └── tools/             — tools.py registry and governance bootstrap
+```
+
+## 12) Mandatory Quality Gates
 
 ### Architecture boundaries
 
@@ -231,10 +322,22 @@ Build: `cd web && npm run build` → `web/dist/`
 python3 -m pytest -q tests/architecture/test_import_boundaries.py
 ```
 
-### Full test suite
+### Governance bootstrap
+
+```bash
+python3 -m pytest -q tests/unit/tools/test_governance_bootstrap.py
+```
+
+### Full Python test suite
 
 ```bash
 python3 -m pytest -q tests/
+```
+
+### TypeScript service tests
+
+```bash
+cd services && npm test
 ```
 
 ### Postgres cutover smoke
@@ -255,10 +358,13 @@ bash .github/scripts/compose_postgres_smoke.sh
 cd web && npm run build
 ```
 
-## 12) Agent Finish Checklist
+## 13) Agent Finish Checklist
 
 1. Validate boundary compliance (`tests/architecture/`).
 2. Run targeted tests for touched modules.
-3. Run full test suite.
-4. If frontend changed: `npm run build` and verify no TS errors.
-5. Report skipped checks and blockers explicitly.
+3. Run full Python test suite.
+4. If TypeScript services changed: `cd services && npm test`.
+5. If frontend changed: `cd web && npm run build` and verify no TS errors.
+6. Update `CONTINUITY.md` with current task state.
+7. Update `MEMORY.md` if architectural or process decisions were made.
+8. Report skipped checks and blockers explicitly.
