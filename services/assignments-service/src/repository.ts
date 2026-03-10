@@ -95,6 +95,28 @@ export class AssignmentsRepository {
     return row ? this.serializeAssignment(row) : null
   }
 
+  getAssignmentsByIds(ids: number[]): AssignmentRecord[] {
+    const safeIds = [...new Set(ids.map((id) => Math.max(0, Number(id) || 0)).filter(Boolean))]
+    if (!safeIds.length) {
+      return []
+    }
+    const placeholders = safeIds.map(() => '?').join(', ')
+    const rows = this.db.prepare(`
+      SELECT
+        id,
+        title,
+        content_original,
+        content_completed,
+        status,
+        lexicon_coverage_percent,
+        created_at,
+        updated_at
+      FROM assignments
+      WHERE id IN (${placeholders})
+    `).all(...safeIds) as DbRow[]
+    return rows.map((row) => this.serializeAssignment(row))
+  }
+
   updateAssignmentContent(input: {
     assignment_id: number
     title: string

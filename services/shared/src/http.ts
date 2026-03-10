@@ -109,12 +109,16 @@ export async function proxyResponse(reply: FastifyReply, response: Response): Pr
     return
   }
   const reader = body.getReader()
-  while (true) {
-    const chunk = await reader.read()
-    if (chunk.done) {
-      break
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) {
+        break
+      }
+      reply.raw.write(Buffer.from(chunk.value))
     }
-    reply.raw.write(Buffer.from(chunk.value))
+  } finally {
+    await reader.cancel().catch(() => undefined)
   }
   reply.raw.end()
 }

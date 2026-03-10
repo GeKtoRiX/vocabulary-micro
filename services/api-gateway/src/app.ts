@@ -31,7 +31,7 @@ interface AssignmentsStatsPayload {
 
 export function buildGatewayApp() {
   const config = loadConfig()
-  const app = fastify({ logger: false })
+  const app = fastify({ logger: process.env.NODE_ENV !== 'test' })
 
   app.addHook('onRequest', async (request) => {
     setRequestId(request, typeof request.headers['x-request-id'] === 'string' ? request.headers['x-request-id'] : undefined)
@@ -133,8 +133,8 @@ export function buildGatewayApp() {
     })
   })
 
-  registerLexiconRoutes(app)
-  registerAssignmentsRoutes(app)
+  registerLexiconRoutes(app, config)
+  registerAssignmentsRoutes(app, config)
 
   app.get('/api/statistics', async (request, reply) => {
     const requestId = getRequestId(request)
@@ -166,7 +166,7 @@ export function buildGatewayApp() {
         assignment_coverage: assignmentsStats.assignment_coverage,
         overview: {
           total_assignments: assignmentsStats.total_assignments,
-          average_assignment_coverage: Number(assignmentsStats.average_assignment_coverage.toFixed(1)),
+          average_assignment_coverage: Number(Number(assignmentsStats.average_assignment_coverage ?? 0).toFixed(1)),
           pending_review_count: Number(lexiconStats.counts_by_status.pending_review ?? 0),
           approved_count: Number(lexiconStats.counts_by_status.approved ?? 0),
           low_coverage_count: assignmentsStats.low_coverage_count,
@@ -201,9 +201,7 @@ export function buildGatewayApp() {
   return app
 }
 
-function registerLexiconRoutes(app: ReturnType<typeof fastify>) {
-  const config = loadConfig()
-
+function registerLexiconRoutes(app: ReturnType<typeof fastify>, config: ReturnType<typeof loadConfig>) {
   app.get('/api/lexicon/entries', async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request)
     const baseUrl = config.gateway.lexiconBackend === 'service'
@@ -268,9 +266,7 @@ function registerLexiconRoutes(app: ReturnType<typeof fastify>) {
   })
 }
 
-function registerAssignmentsRoutes(app: ReturnType<typeof fastify>) {
-  const config = loadConfig()
-
+function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: ReturnType<typeof loadConfig>) {
   app.post('/api/assignments/scan', async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request)
     const jobId = createJob()
@@ -454,20 +450,24 @@ async function streamGatewayJob(reply: import('fastify').FastifyReply, jobId: st
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   })
-  while (true) {
-    const event = await nextJobEvent(jobId)
-    if (!event) {
-      reply.raw.write('data: {"type":"error","message":"Job not found"}\n\n')
-      reply.raw.end()
-      return
+  try {
+    while (true) {
+      const event = await nextJobEvent(jobId)
+      if (!event) {
+        reply.raw.write('data: {"type":"error","message":"Job not found"}\n\n')
+        return
+      }
+      reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
+      if (event.type === 'done' || event.type === 'error') {
+        return
+      }
     }
-    reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
-    if (event.type === 'done' || event.type === 'error') {
-      break
+  } finally {
+    cleanupJob(jobId)
+    if (!reply.raw.writableEnded) {
+      reply.raw.end()
     }
   }
-  cleanupJob(jobId)
-  reply.raw.end()
 }
 
 function interpolatePath(pathname: string, params: Record<string, string> = {}): string {

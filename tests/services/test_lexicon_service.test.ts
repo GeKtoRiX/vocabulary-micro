@@ -141,4 +141,94 @@ describe('lexicon-service', () => {
       await app.close()
     }
   })
+
+  it('supports bulk-status, delete entries, category guards, and index building', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexicon-service-'))
+    tempDirs.push(dir)
+    process.env.LEXICON_DB_PATH = path.join(dir, 'lexicon.sqlite3')
+
+    const app = buildLexiconServiceApp()
+    try {
+      await app.inject({ method: 'POST', url: '/lexicon/categories', payload: { name: 'Verb' } })
+      await app.inject({ method: 'POST', url: '/lexicon/categories', payload: { name: 'Phrasal Verb' } })
+
+      await app.inject({
+        method: 'POST',
+        url: '/lexicon/entries',
+        payload: { category: 'Verb', value: 'Run', source: 'manual', confidence: 0.9 },
+      })
+      await app.inject({
+        method: 'POST',
+        url: '/lexicon/entries',
+        payload: { category: 'Verb', value: 'Jump', source: 'manual', confidence: 0.9 },
+      })
+      await app.inject({
+        method: 'POST',
+        url: '/lexicon/entries',
+        payload: { category: 'Phrasal Verb', value: 'Fill In', source: 'manual', confidence: 0.9 },
+      })
+
+      const index = await app.inject({
+        method: 'GET',
+        url: '/internal/v1/lexicon/index',
+      })
+      expect(index.statusCode).toBe(200)
+      expect(index.json().single_word_index.run).toContain('Verb')
+      expect(index.json().multi_word_index['fill in']).toContain('Phrasal Verb')
+
+      const search = await app.inject({
+        method: 'GET',
+        url: '/lexicon/entries?status=all&limit=20&offset=0&sort_by=id&sort_direction=asc',
+      })
+      const rows = search.json().rows
+      const runId = rows.find((row: { normalized: string }) => row.normalized === 'run')?.id
+      const jumpId = rows.find((row: { normalized: string }) => row.normalized === 'jump')?.id
+      const fillInId = rows.find((row: { normalized: string }) => row.normalized === 'fill in')?.id
+
+      const bulkStatus = await app.inject({
+        method: 'POST',
+        url: '/lexicon/entries/bulk-status',
+        payload: {
+          entry_ids: [runId, jumpId],
+          status: 'rejected',
+          query: { status: 'all', limit: 20, offset: 0 },
+        },
+      })
+      expect(bulkStatus.statusCode).toBe(200)
+      expect(bulkStatus.json().message).toContain("Updated 2 of 2 entries to 'rejected'")
+      const updatedRows = bulkStatus.json().rows
+      expect(updatedRows.find((row: { id: number }) => row.id === runId)?.status).toBe('rejected')
+      expect(updatedRows.find((row: { id: number }) => row.id === jumpId)?.status).toBe('rejected')
+
+      const deleteCategoryBlocked = await app.inject({
+        method: 'DELETE',
+        url: '/lexicon/categories/Verb',
+      })
+      expect(deleteCategoryBlocked.statusCode).toBe(200)
+      expect(deleteCategoryBlocked.json().message).toContain("Delete category skipped: 'Verb' is used by 2 entries.")
+
+      const deleteEntries = await app.inject({
+        method: 'DELETE',
+        url: '/lexicon/entries',
+        payload: {
+          entry_ids: [runId, jumpId],
+          query: { status: 'all', limit: 20, offset: 0 },
+        },
+      })
+      expect(deleteEntries.statusCode).toBe(200)
+      expect(deleteEntries.json().rows.some((row: { id: number }) => row.id === runId)).toBe(false)
+      expect(deleteEntries.json().rows.some((row: { id: number }) => row.id === jumpId)).toBe(false)
+      expect(deleteEntries.json().rows.some((row: { id: number }) => row.id === fillInId)).toBe(true)
+
+      const deleteCategoryAllowed = await app.inject({
+        method: 'DELETE',
+        url: '/lexicon/categories/Verb',
+      })
+      expect(deleteCategoryAllowed.statusCode).toBe(200)
+      expect(deleteCategoryAllowed.json().message).toBe("Deleted category 'Verb'.")
+      expect(deleteCategoryAllowed.json().categories).not.toContain('Verb')
+    } finally {
+      await app.close()
+    }
+  })
 })

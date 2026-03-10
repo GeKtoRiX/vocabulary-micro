@@ -740,13 +740,18 @@ export class PostgresLexiconRepository {
   private async withTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
     await this.ready
     const client = await this.pool.connect()
+    let inTransaction = false
     try {
       await client.query('BEGIN')
+      inTransaction = true
       const result = await callback(client)
       await client.query('COMMIT')
+      inTransaction = false
       return result
     } catch (error) {
-      await client.query('ROLLBACK')
+      if (inTransaction) {
+        await client.query('ROLLBACK')
+      }
       throw error
     } finally {
       client.release()

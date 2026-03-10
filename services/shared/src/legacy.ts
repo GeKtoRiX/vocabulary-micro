@@ -73,32 +73,36 @@ export async function* parseSseEvents(
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  while (true) {
-    const chunk = await reader.read()
-    if (chunk.done) {
-      break
-    }
-    buffer += decoder.decode(chunk.value, { stream: true })
+  try {
     while (true) {
-      const frameEnd = buffer.indexOf('\n\n')
-      if (frameEnd === -1) {
+      const chunk = await reader.read()
+      if (chunk.done) {
         break
       }
-      const frame = buffer.slice(0, frameEnd)
-      buffer = buffer.slice(frameEnd + 2)
-      const dataLines = frame
-        .split('\n')
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trim())
-      if (!dataLines.length) {
-        continue
-      }
-      const raw = dataLines.join('\n')
-      try {
-        yield JSON.parse(raw) as Record<string, unknown>
-      } catch {
-        yield { type: 'error', message: raw }
+      buffer += decoder.decode(chunk.value, { stream: true })
+      while (true) {
+        const frameEnd = buffer.indexOf('\n\n')
+        if (frameEnd === -1) {
+          break
+        }
+        const frame = buffer.slice(0, frameEnd)
+        buffer = buffer.slice(frameEnd + 2)
+        const dataLines = frame
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+        if (!dataLines.length) {
+          continue
+        }
+        const raw = dataLines.join('\n')
+        try {
+          yield JSON.parse(raw) as Record<string, unknown>
+        } catch {
+          yield { type: 'error', message: raw }
+        }
       }
     }
+  } finally {
+    await reader.cancel().catch(() => undefined)
   }
 }

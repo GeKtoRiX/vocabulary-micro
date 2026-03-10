@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseSseEvents } from '../../services/shared/src/legacy.js'
 
 describe('parseSseEvents', () => {
@@ -21,5 +21,23 @@ describe('parseSseEvents', () => {
       { type: 'progress', message: 'x' },
       { type: 'done' },
     ])
+  })
+
+  it('cancels the reader when iteration stops early', async () => {
+    const encoder = new TextEncoder()
+    const cancel = vi.fn()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"progress"}\n\n'))
+      },
+      cancel,
+    })
+
+    for await (const event of parseSseEvents(stream)) {
+      expect(event).toEqual({ type: 'progress' })
+      break
+    }
+
+    expect(cancel).toHaveBeenCalledTimes(1)
   })
 })

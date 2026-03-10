@@ -126,4 +126,43 @@ describe('api-gateway failure modes', () => {
       await app.close()
     }
   })
+
+  it('defaults statistics average coverage to 0 when assignments-service omits it', async () => {
+    process.env.GATEWAY_ASSIGNMENTS_BACKEND = 'service'
+    process.env.ASSIGNMENTS_SERVICE_HOST = 'assignments-service'
+    process.env.ASSIGNMENTS_SERVICE_PORT = '4012'
+    process.env.GATEWAY_SERVE_STATIC = '0'
+    process.env.LEXICON_SERVICE_HOST = 'lexicon-service'
+    process.env.LEXICON_SERVICE_PORT = '4011'
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input)
+      if (url.includes('/internal/v1/lexicon/statistics')) {
+        return new Response(JSON.stringify({
+          total_entries: 10,
+          counts_by_status: { approved: 3, pending_review: 2 },
+          counts_by_source: { manual: 10 },
+          categories: [{ name: 'Verb', count: 4 }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      if (url.includes('/internal/v1/assignments/statistics')) {
+        return new Response(JSON.stringify({
+          assignment_coverage: [],
+          total_assignments: 0,
+          average_assignment_coverage: null,
+          low_coverage_count: 0,
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    }))
+
+    const app = buildGatewayApp()
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/statistics' })
+      expect(response.statusCode).toBe(200)
+      expect(response.json().overview.average_assignment_coverage).toBe(0)
+    } finally {
+      await app.close()
+    }
+  })
 })

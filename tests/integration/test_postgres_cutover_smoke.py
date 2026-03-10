@@ -81,6 +81,17 @@ def _request_text(url: str, *, method: str = "GET", payload: dict | None = None)
         return response.status, response.read().decode("utf-8")
 
 
+def _request_bytes(url: str, *, method: str = "GET", payload: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
+    data = None
+    headers: dict[str, str] = {}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.status, response.read(), dict(response.headers.items())
+
+
 def _wait_for_json(url: str, timeout_seconds: int = 60) -> dict:
     deadline = time.time() + timeout_seconds
     last_error = ""
@@ -120,6 +131,30 @@ def _cleanup_local_stack_processes() -> None:
             capture_output=True,
             check=False,
         )
+
+
+def _run_assignment_scan(title: str, term: str) -> tuple[int, str]:
+    status, scan_start = _request_json(
+        "http://127.0.0.1:8765/api/assignments/scan",
+        method="POST",
+        payload={
+            "title": title,
+            "content_original": "I walk in the park.",
+            "content_completed": f"I {term} swiftly in the park.",
+        },
+    )
+    assert status == 200
+    job_id = scan_start["job_id"]
+    status, stream_payload = _request_text(
+        f"http://127.0.0.1:8765/api/assignments/scan/jobs/{job_id}/stream",
+    )
+    assert status == 200
+    assert '"type":"result"' in stream_payload
+    assert title in stream_payload
+
+    assignments = _request_json("http://127.0.0.1:8765/api/assignments")[1]
+    created = next(item for item in assignments if item["title"] == title)
+    return int(created["id"]), stream_payload
 
 
 @pytest.fixture()
@@ -227,29 +262,12 @@ def test_postgres_cutover_smoke(running_postgres_cutover_stack: dict[str, object
     assert term in entry_payload["message"]
 
     status, search_payload = _request_json(
-        f"http://127.0.0.1:8765/api/lexicon/entries?status=all&limit=20&offset=0&query={term}"
+        f"http://127.0.0.1:8765/api/lexicon/entries?status=all&limit=20&offset=0&value_filter={term}"
     )
     assert status == 200
     assert any(row["normalized"] == term for row in search_payload["rows"])
 
-    status, scan_start = _request_json(
-        "http://127.0.0.1:8765/api/assignments/scan",
-        method="POST",
-        payload={
-            "title": title,
-            "content_original": "I walk in the park.",
-            "content_completed": f"I {term} swiftly in the park.",
-        },
-    )
-    assert status == 200
-    job_id = scan_start["job_id"]
-
-    status, stream_payload = _request_text(
-        f"http://127.0.0.1:8765/api/assignments/scan/jobs/{job_id}/stream",
-    )
-    assert status == 200
-    assert '"type":"result"' in stream_payload
-    assert title in stream_payload
+    _, stream_payload = _run_assignment_scan(title, term)
 
     statistics = _request_json("http://127.0.0.1:8765/api/statistics")[1]
     assert statistics["overview"]["total_assignments"] >= 3
@@ -276,3 +294,110 @@ def test_postgres_cutover_smoke(running_postgres_cutover_stack: dict[str, object
     assert assignment_row == f"{title}|PENDING"
     assert "assignments-service:0001_init" in migration_rows
     assert "lexicon-service:0001_init" in migration_rows
+
+
+def test_bulk_rescan_gateway(running_postgres_cutover_stack: dict[str, object]) -> None:
+    suffix = uuid.uuid4().hex[:8]
+    category_name = f"Bulk Rescan Smoke {suffix}"
+    term = f"bulkprobe{suffix}"
+
+    status, _ = _request_json(
+        "http://127.0.0.1:8765/api/lexicon/categories",
+        method="POST",
+        payload={"name": category_name},
+    )
+    assert status == 200
+    status, _ = _request_json(
+        "http://127.0.0.1:8765/api/lexicon/entries",
+        method="POST",
+        payload={
+            "category": category_name,
+            "value": term,
+            "source": "manual",
+            "confidence": 0.99,
+        },
+    )
+    assert status == 200
+
+    assignment_ids = []
+    for index in range(3):
+        assignment_id, _ = _run_assignment_scan(f"Bulk Rescan {suffix}-{index}", term)
+        assignment_ids.append(assignment_id)
+
+    status, bulk_start = _request_json(
+        "http://127.0.0.1:8765/api/assignments/bulk-rescan",
+        method="POST",
+        payload={"assignment_ids": assignment_ids},
+    )
+    assert status == 200
+    bulk_job_id = bulk_start["job_id"]
+
+    status, stream_payload = _request_text(
+        f"http://127.0.0.1:8765/api/assignments/scan/jobs/{bulk_job_id}/stream",
+    )
+    assert status == 200
+    assert '"type":"result"' in stream_payload
+    statistics = _request_json("http://127.0.0.1:8765/api/statistics")[1]
+    assert statistics["overview"]["total_assignments"] >= 5
+
+
+def test_lexicon_export_returns_xlsx(running_postgres_cutover_stack: dict[str, object]) -> None:
+    suffix = uuid.uuid4().hex[:8]
+    category_name = f"Export Smoke {suffix}"
+    term = f"exportprobe{suffix}"
+
+    status, _ = _request_json(
+        "http://127.0.0.1:8765/api/lexicon/categories",
+        method="POST",
+        payload={"name": category_name},
+    )
+    assert status == 200
+    status, _ = _request_json(
+        "http://127.0.0.1:8765/api/lexicon/entries",
+        method="POST",
+        payload={
+            "category": category_name,
+            "value": term,
+            "source": "manual",
+            "confidence": 0.99,
+        },
+    )
+    assert status == 200
+
+    status, body, headers = _request_bytes("http://127.0.0.1:8765/api/lexicon/export")
+    assert status == 200
+    content_type = headers.get("Content-Type", headers.get("content-type", ""))
+    assert content_type.startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert len(body) > 1024
+
+
+def test_statistics_composition(running_postgres_cutover_stack: dict[str, object]) -> None:
+    suffix = uuid.uuid4().hex[:8]
+    category_name = f"Stats Smoke {suffix}"
+    term = f"statsprobe{suffix}"
+
+    status, _ = _request_json(
+        "http://127.0.0.1:8765/api/lexicon/categories",
+        method="POST",
+        payload={"name": category_name},
+    )
+    assert status == 200
+    status, _ = _request_json(
+        "http://127.0.0.1:8765/api/lexicon/entries",
+        method="POST",
+        payload={
+            "category": category_name,
+            "value": term,
+            "source": "manual",
+            "confidence": 0.99,
+        },
+    )
+    assert status == 200
+
+    _run_assignment_scan(f"Stats Assignment {suffix}", term)
+
+    statistics = _request_json("http://127.0.0.1:8765/api/statistics")[1]
+    assert statistics["overview"]["total_assignments"] > 0
+    assert 0 <= statistics["overview"]["average_assignment_coverage"] <= 100

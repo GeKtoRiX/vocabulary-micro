@@ -73,6 +73,28 @@ def request_json(url: str, *, method: str = "GET", payload: dict | None = None):
         return response.status, json.loads(response.read().decode("utf-8"))
 
 
+def request_text(url: str, *, method: str = "GET", payload: dict | None = None):
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.status, response.read().decode("utf-8")
+
+
+def request_bytes(url: str, *, method: str = "GET", payload: dict | None = None):
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.status, response.read(), dict(response.headers.items())
+
+
 def wait_for_json(url: str, *, timeout: int = 420):
     deadline = time.time() + timeout
     last_error = ""
@@ -147,6 +169,50 @@ assert "Compose Assignment Smoke" in stream
 
 _, statistics = request_json(f"http://127.0.0.1:{gateway_port}/api/statistics")
 assert statistics["overview"]["total_assignments"] >= 3
+
+assignment_ids = []
+for index in range(1, 4):
+    _, scan_start = request_json(
+        f"http://127.0.0.1:{gateway_port}/api/assignments/scan",
+        method="POST",
+        payload={
+            "title": f"Compose Bulk Assignment {index}",
+            "content_original": "I walk in the park.",
+            "content_completed": "I composeprobe swiftly in the park.",
+        },
+    )
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{gateway_port}/api/assignments/scan/jobs/{scan_start['job_id']}/stream",
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        stream = response.read().decode("utf-8")
+    assert '"type":"result"' in stream
+
+_, assignments = request_json(f"http://127.0.0.1:{gateway_port}/api/assignments")
+for title in ["Compose Bulk Assignment 1", "Compose Bulk Assignment 2", "Compose Bulk Assignment 3"]:
+    assignment_ids.append(next(item["id"] for item in assignments if item["title"] == title))
+
+_, bulk_start = request_json(
+    f"http://127.0.0.1:{gateway_port}/api/assignments/bulk-rescan",
+    method="POST",
+    payload={"assignment_ids": assignment_ids},
+)
+_, bulk_stream = request_text(
+    f"http://127.0.0.1:{gateway_port}/api/assignments/scan/jobs/{bulk_start['job_id']}/stream",
+)
+assert '"type":"result"' in bulk_stream
+
+_, statistics = request_json(f"http://127.0.0.1:{gateway_port}/api/statistics")
+assert statistics["overview"]["total_assignments"] >= 6
+assert 0 <= statistics["overview"]["average_assignment_coverage"] <= 100
+
+_, export_body, export_headers = request_bytes(f"http://127.0.0.1:{gateway_port}/api/lexicon/export")
+content_type = export_headers.get("Content-Type", export_headers.get("content-type", ""))
+assert content_type.startswith(
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+assert len(export_body) > 1024
 PY
 
 POSTGRES_CONTAINER_ID="$(docker_cmd compose ps -q postgres)"

@@ -19,7 +19,7 @@ import type { LexiconStore } from './storage.js'
 
 export function buildLexiconServiceApp() {
   const config = loadConfig()
-  const app = fastify({ logger: false })
+  const app = fastify({ logger: process.env.NODE_ENV !== 'test' })
   const repository = createLexiconRepository(config)
 
   app.addHook('onClose', async () => {
@@ -169,7 +169,10 @@ function createLexiconRepository(config: ReturnType<typeof loadConfig>): Lexicon
       } finally {
         sqliteRepository.close()
       }
-    })()
+    })().catch((error) => {
+      bootstrapPromise = null
+      throw error
+    })
     await bootstrapPromise
   }
 

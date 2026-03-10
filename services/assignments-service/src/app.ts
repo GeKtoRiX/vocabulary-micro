@@ -12,7 +12,7 @@ import type { AssignmentsStore } from './storage.js'
 
 export function buildAssignmentsServiceApp() {
   const config = loadConfig()
-  const app = fastify({ logger: false })
+  const app = fastify({ logger: process.env.NODE_ENV !== 'test' })
   const repository = createAssignmentsRepository(config)
 
   app.addHook('onClose', async () => {
@@ -140,16 +140,27 @@ export function buildAssignmentsServiceApp() {
   app.post('/internal/v1/assignments/bulk-rescan', async (request) => {
     const body = request.body as { assignment_ids?: number[] }
     const ids = [...new Set((body.assignment_ids ?? []).map((item) => Number(item)).filter((item) => item > 0))]
+    if (!ids.length) {
+      return {
+        success_count: 0,
+        failed_count: 0,
+        message: 'Bulk rescan: 0 succeeded, 0 failed.',
+      }
+    }
+    const lexiconRows = await fetchAllLexiconRows(config)
+    const assignmentsById = new Map(
+      (await repository.getAssignmentsByIds(ids)).map((assignment) => [assignment.id, assignment] as const),
+    )
     const processed: number[] = []
     const failed: number[] = []
     for (const id of ids) {
-      const assignment = await repository.getAssignmentById(id)
+      const assignment = assignmentsById.get(id)
       if (!assignment) {
         failed.push(id)
         continue
       }
       try {
-        await scanAndPersist(config, repository, assignment)
+        await scanAndPersist(config, repository, assignment, lexiconRows)
         processed.push(id)
       } catch {
         failed.push(id)
@@ -204,20 +215,14 @@ async function scanAndPersist(
     content_original: string
     content_completed: string
   },
+  lexiconRows?: LexiconSearchRow[],
 ) {
-  const lexicon = await fetchLexiconSearch(config, {
-    status: 'all',
-    limit: 12000,
-    offset: 0,
-    sort_by: 'id',
-    sort_direction: 'desc',
-  })
   const result = scanAssignment({
     assignmentId: assignment.id,
     title: assignment.title,
     contentOriginal: assignment.content_original,
     contentCompleted: assignment.content_completed,
-    lexiconRows: lexicon.rows,
+    lexiconRows: lexiconRows ?? await fetchAllLexiconRows(config),
     completedThresholdPercent: 90,
   })
   await repository.updateAssignmentStatus({
@@ -226,6 +231,17 @@ async function scanAndPersist(
     lexicon_coverage_percent: result.lexicon_coverage_percent,
   })
   return result
+}
+
+async function fetchAllLexiconRows(config: ReturnType<typeof loadConfig>): Promise<LexiconSearchRow[]> {
+  const lexicon = await fetchLexiconSearch(config, {
+    status: 'all',
+    limit: 12000,
+    offset: 0,
+    sort_by: 'id',
+    sort_direction: 'desc',
+  })
+  return lexicon.rows
 }
 
 function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): AssignmentsStore {
@@ -254,7 +270,10 @@ function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): Ass
       } finally {
         sqliteRepository.close()
       }
-    })()
+    })().catch((error) => {
+      bootstrapPromise = null
+      throw error
+    })
     await bootstrapPromise
   }
 
@@ -270,6 +289,10 @@ function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): Ass
     async getAssignmentById(id) {
       await bootstrapIfNeeded()
       return repository.getAssignmentById(id)
+    },
+    async getAssignmentsByIds(ids) {
+      await bootstrapIfNeeded()
+      return repository.getAssignmentsByIds(ids)
     },
     async updateAssignmentContent(input) {
       await bootstrapIfNeeded()

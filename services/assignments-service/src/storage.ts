@@ -10,6 +10,7 @@ export interface AssignmentsStore {
   }): Awaitable<AssignmentRecord>
   listAssignments(limit?: number, offset?: number): Awaitable<AssignmentRecord[]>
   getAssignmentById(id: number): Awaitable<AssignmentRecord | null>
+  getAssignmentsByIds(ids: number[]): Awaitable<AssignmentRecord[]>
   updateAssignmentContent(input: {
     assignment_id: number
     title: string

@@ -125,6 +125,31 @@ export class PostgresAssignmentsRepository {
     return row ? this.serializeAssignment(row) : null
   }
 
+  async getAssignmentsByIds(ids: number[]): Promise<AssignmentRecord[]> {
+    await this.ready
+    const safeIds = [...new Set(ids.map((id) => Math.max(0, Number(id) || 0)).filter(Boolean))]
+    if (!safeIds.length) {
+      return []
+    }
+    const rows = (await this.pool.query(
+      `
+        SELECT
+          id,
+          title,
+          content_original,
+          content_completed,
+          status,
+          lexicon_coverage_percent,
+          created_at,
+          updated_at
+        FROM assignments
+        WHERE id = ANY($1::int[])
+      `,
+      [safeIds],
+    )).rows as DbRow[]
+    return rows.map((row) => this.serializeAssignment(row))
+  }
+
   async updateAssignmentContent(input: {
     assignment_id: number
     title: string
@@ -321,13 +346,18 @@ export class PostgresAssignmentsRepository {
 
   private async withTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect()
+    let inTransaction = false
     try {
       await client.query('BEGIN')
+      inTransaction = true
       const result = await callback(client)
       await client.query('COMMIT')
+      inTransaction = false
       return result
     } catch (error) {
-      await client.query('ROLLBACK')
+      if (inTransaction) {
+        await client.query('ROLLBACK')
+      }
       throw error
     } finally {
       client.release()
