@@ -17,6 +17,39 @@ router = APIRouter()
 _PARSE_COLUMNS = ["token", "normalized", "lemma", "categories", "source", "matched_form", "confidence", "known"]
 
 
+def _serialize_parse_rows(table: list[list[object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for fallback_index, row in enumerate(table, start=1):
+        values = list(row)
+        if len(values) >= len(_PARSE_COLUMNS) + 1:
+            raw_index = values[0]
+            values = values[1:]
+        else:
+            raw_index = fallback_index
+
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            index = fallback_index
+
+        entry: dict[str, object] = {"index": index}
+        for col, val in zip(_PARSE_COLUMNS, values):
+            if col == "known":
+                normalized = str(val).strip().lower()
+                if normalized in {"yes", "true", "1"}:
+                    entry[col] = "true"
+                elif normalized in {"no", "false", "0"}:
+                    entry[col] = "false"
+                else:
+                    entry[col] = str(val)
+                continue
+            entry[col] = "" if val is None else str(val)
+        for col in _PARSE_COLUMNS:
+            entry.setdefault(col, "")
+        rows.append(entry)
+    return rows
+
+
 @router.post("/parse", response_model=ParseJobResponse)
 async def start_parse(
     req: ParseRequest,
@@ -36,12 +69,7 @@ async def start_parse(
                 think_mode=req.think_mode,
             )
             if result.success and result.data is not None:
-                rows = []
-                for i, row in enumerate(result.data.table):
-                    entry = {"index": i + 1}
-                    for col, val in zip(_PARSE_COLUMNS, row):
-                        entry[col] = val
-                    rows.append(entry)
+                rows = _serialize_parse_rows(result.data.table)
                 push_event(loop, job_id, {
                     "type": "result",
                     "rows": rows,

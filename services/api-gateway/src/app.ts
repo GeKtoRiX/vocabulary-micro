@@ -4,6 +4,12 @@ import fastify from 'fastify'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import {
+  assertAssignmentScanResultContract,
+  assertAssignmentsStatisticsContract,
+  assertBulkRescanResultContract,
+  assertLexiconStatisticsContract,
+  assertParseResultContract,
+  assertWarmupStatusContract,
   buildUrl,
   extractForwardHeaders,
   loadConfig,
@@ -15,20 +21,6 @@ import {
 } from '@vocabulary/shared'
 import { cleanupJob, createJob, nextJobEvent, pushJobEvent } from './jobs.js'
 
-interface LexiconStatsPayload {
-  total_entries: number
-  counts_by_status: Record<string, number>
-  counts_by_source: Record<string, number>
-  categories: Array<{ name: string; count: number }>
-}
-
-interface AssignmentsStatsPayload {
-  assignment_coverage: Array<{ title: string; coverage_pct: number; created_at: string }>
-  total_assignments: number
-  average_assignment_coverage: number
-  low_coverage_count: number
-}
-
 export function buildGatewayApp() {
   const config = loadConfig()
   const app = fastify({ logger: process.env.NODE_ENV !== 'test' })
@@ -38,21 +30,23 @@ export function buildGatewayApp() {
   })
 
   app.get('/api/system/health', async (request, reply) => {
-    reply.send({ status: 'ok', request_id: getRequestId(request) })
+    void getRequestId(request)
+    reply.send({ status: 'ok' })
   })
 
   app.get('/api/system/warmup', async (request, reply) => {
     const requestId = getRequestId(request)
     if (config.gateway.parseBackend === 'nlp') {
-      await proxyJson(
-        reply,
-        serviceBaseUrl(config.nlpService),
-        '/internal/v1/system/warmup',
-        {
+      try {
+        const payload = await requestJson(serviceBaseUrl(config.nlpService), '/internal/v1/system/warmup', {
           method: 'GET',
           headers: extractForwardHeaders(request, requestId),
-        },
-      )
+        })
+        assertWarmupStatusContract(payload)
+        reply.send(payload)
+      } catch (error) {
+        reply.code(502).send({ detail: error instanceof Error ? error.message : String(error) })
+      }
       return
     }
     await proxyJson(reply, config.legacyBaseUrl, '/api/system/warmup', {
@@ -65,7 +59,7 @@ export function buildGatewayApp() {
     const requestId = getRequestId(request)
     const jobId = createJob()
     queueMicrotask(async () => {
-      pushJobEvent(jobId, { type: 'progress', message: 'Parsing...', request_id: requestId })
+      pushJobEvent(jobId, { type: 'progress', message: 'Parsing...' })
       try {
         if (config.gateway.parseBackend === 'nlp') {
           const payload = await requestJson<Record<string, unknown>>(
@@ -80,7 +74,8 @@ export function buildGatewayApp() {
               body: JSON.stringify(request.body ?? {}),
             },
           )
-          pushJobEvent(jobId, asGatewayEvent({ type: 'result', request_id: requestId, ...payload }))
+          assertParseResultContract(payload)
+          pushJobEvent(jobId, asGatewayEvent({ type: 'result', ...payload }))
         } else {
           await bridgeLegacyJob({
             baseUrl: config.legacyBaseUrl,
@@ -89,18 +84,17 @@ export function buildGatewayApp() {
             body: request.body ?? {},
             headers: extractForwardHeaders(request, requestId),
             onEvent(event) {
-              pushJobEvent(jobId, asGatewayEvent({ ...event, request_id: requestId }))
+              pushJobEvent(jobId, sanitizePublicEvent(event))
             },
           })
         }
       } catch (error) {
         pushJobEvent(jobId, {
           type: 'error',
-          request_id: requestId,
           message: error instanceof Error ? error.message : String(error),
         })
       } finally {
-        pushJobEvent(jobId, { type: 'done', request_id: requestId })
+        pushJobEvent(jobId, { type: 'done' })
       }
     })
     reply.send({ job_id: jobId })
@@ -148,15 +142,17 @@ export function buildGatewayApp() {
 
     try {
       const [lexiconStats, assignmentsStats] = await Promise.all([
-        requestJson<LexiconStatsPayload>(serviceBaseUrl(config.lexiconService), '/internal/v1/lexicon/statistics', {
+        requestJson(serviceBaseUrl(config.lexiconService), '/internal/v1/lexicon/statistics', {
           method: 'GET',
           headers: { 'x-request-id': requestId },
         }),
-        requestJson<AssignmentsStatsPayload>(serviceBaseUrl(config.assignmentsService), '/internal/v1/assignments/statistics', {
+        requestJson(serviceBaseUrl(config.assignmentsService), '/internal/v1/assignments/statistics', {
           method: 'GET',
           headers: { 'x-request-id': requestId },
         }),
       ])
+      assertLexiconStatisticsContract(lexiconStats)
+      assertAssignmentsStatisticsContract(assignmentsStats)
       const topCategory = lexiconStats.categories[0] ?? { name: '', count: 0 }
       reply.send({
         total_entries: lexiconStats.total_entries,
@@ -179,10 +175,22 @@ export function buildGatewayApp() {
   })
 
   if (config.gateway.serveStatic && fs.existsSync(config.gateway.staticDir)) {
+    const indexHtmlPath = `${config.gateway.staticDir}/index.html`
+
     app.register(fastifyStatic, {
       root: config.gateway.staticDir,
       prefix: '/',
       wildcard: false,
+      index: false,
+    })
+
+    app.route({
+      method: 'GET',
+      url: '/',
+      exposeHeadRoute: false,
+      handler: async (_, reply) => {
+        reply.type('text/html; charset=utf-8').send(fs.readFileSync(indexHtmlPath, 'utf8'))
+      },
     })
 
     app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
@@ -237,10 +245,12 @@ function registerLexiconRoutes(app: ReturnType<typeof fastify>, config: ReturnTy
         )
         await proxyJson(reply, baseUrl, targetPath, {
           method: route.method,
-          headers: {
-            ...extractForwardHeaders(request, requestId),
-            'content-type': 'application/json',
-          },
+          headers: request.body === undefined
+            ? extractForwardHeaders(request, requestId)
+            : {
+                ...extractForwardHeaders(request, requestId),
+                'content-type': 'application/json',
+              },
           body: request.body === undefined ? undefined : JSON.stringify(request.body),
         })
       },
@@ -271,7 +281,7 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
     const requestId = getRequestId(request)
     const jobId = createJob()
     queueMicrotask(async () => {
-      pushJobEvent(jobId, { type: 'progress', message: 'Scanning assignment...', request_id: requestId })
+      pushJobEvent(jobId, { type: 'progress', message: 'Scanning assignment...' })
       try {
         if (config.gateway.assignmentsBackend === 'service') {
           const payload = await requestJson<Record<string, unknown>>(
@@ -286,7 +296,8 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
               body: JSON.stringify(request.body ?? {}),
             },
           )
-          pushJobEvent(jobId, { type: 'result', data: payload, request_id: requestId })
+          assertAssignmentScanResultContract(payload)
+          pushJobEvent(jobId, { type: 'result', data: payload })
         } else {
           await bridgeLegacyJob({
             baseUrl: config.legacyBaseUrl,
@@ -295,18 +306,17 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
             body: request.body ?? {},
             headers: extractForwardHeaders(request, requestId),
             onEvent(event) {
-              pushJobEvent(jobId, asGatewayEvent({ ...event, request_id: requestId }))
+              pushJobEvent(jobId, sanitizePublicEvent(event))
             },
           })
         }
       } catch (error) {
         pushJobEvent(jobId, {
           type: 'error',
-          request_id: requestId,
           message: error instanceof Error ? error.message : String(error),
         })
       } finally {
-        pushJobEvent(jobId, { type: 'done', request_id: requestId })
+        pushJobEvent(jobId, { type: 'done' })
       }
     })
     reply.send({ job_id: jobId })
@@ -339,10 +349,12 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
         )
         await proxyJson(reply, baseUrl, targetPath, {
           method: route.method,
-          headers: {
-            ...extractForwardHeaders(request, requestId),
-            'content-type': 'application/json',
-          },
+          headers: request.body === undefined
+            ? extractForwardHeaders(request, requestId)
+            : {
+                ...extractForwardHeaders(request, requestId),
+                'content-type': 'application/json',
+              },
           query: request.query as Record<string, unknown>,
           body: request.body === undefined ? undefined : JSON.stringify(request.body),
         })
@@ -355,7 +367,7 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
     const jobId = createJob()
     const assignmentId = String((request.params as { assignmentId: string }).assignmentId)
     queueMicrotask(async () => {
-      pushJobEvent(jobId, { type: 'progress', message: 'Updating assignment...', request_id: requestId })
+      pushJobEvent(jobId, { type: 'progress', message: 'Updating assignment...' })
       try {
         if (config.gateway.assignmentsBackend === 'service') {
           const payload = await requestJson<Record<string, unknown>>(
@@ -370,7 +382,8 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
               body: JSON.stringify(request.body ?? {}),
             },
           )
-          pushJobEvent(jobId, { type: 'result', data: payload, request_id: requestId })
+          assertAssignmentScanResultContract(payload)
+          pushJobEvent(jobId, { type: 'result', data: payload })
         } else {
           await bridgeLegacyJob({
             baseUrl: config.legacyBaseUrl,
@@ -379,18 +392,17 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
             body: request.body ?? {},
             headers: extractForwardHeaders(request, requestId),
             onEvent(event) {
-              pushJobEvent(jobId, asGatewayEvent({ ...event, request_id: requestId }))
+              pushJobEvent(jobId, sanitizePublicEvent(event))
             },
           })
         }
       } catch (error) {
         pushJobEvent(jobId, {
           type: 'error',
-          request_id: requestId,
           message: error instanceof Error ? error.message : String(error),
         })
       } finally {
-        pushJobEvent(jobId, { type: 'done', request_id: requestId })
+        pushJobEvent(jobId, { type: 'done' })
       }
     })
     reply.send({ job_id: jobId })
@@ -400,7 +412,7 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
     const requestId = getRequestId(request)
     const jobId = createJob()
     queueMicrotask(async () => {
-      pushJobEvent(jobId, { type: 'progress', message: 'Rescanning assignments...', request_id: requestId })
+      pushJobEvent(jobId, { type: 'progress', message: 'Rescanning assignments...' })
       try {
         if (config.gateway.assignmentsBackend === 'service') {
           const payload = await requestJson<Record<string, unknown>>(
@@ -415,7 +427,8 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
               body: JSON.stringify(request.body ?? {}),
             },
           )
-          pushJobEvent(jobId, asGatewayEvent({ type: 'result', request_id: requestId, ...payload }))
+          assertBulkRescanResultContract(payload)
+          pushJobEvent(jobId, asGatewayEvent({ type: 'result', ...payload }))
         } else {
           await bridgeLegacyJob({
             baseUrl: config.legacyBaseUrl,
@@ -424,18 +437,17 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
             body: request.body ?? {},
             headers: extractForwardHeaders(request, requestId),
             onEvent(event) {
-              pushJobEvent(jobId, asGatewayEvent({ ...event, request_id: requestId }))
+              pushJobEvent(jobId, sanitizePublicEvent(event))
             },
           })
         }
       } catch (error) {
         pushJobEvent(jobId, {
           type: 'error',
-          request_id: requestId,
           message: error instanceof Error ? error.message : String(error),
         })
       } finally {
-        pushJobEvent(jobId, { type: 'done', request_id: requestId })
+        pushJobEvent(jobId, { type: 'done' })
       }
     })
     reply.send({ job_id: jobId })
@@ -484,6 +496,11 @@ function serviceBaseUrl(config: { host: string; port: number }): string {
 
 function asGatewayEvent(event: Record<string, unknown>): import('./jobs.js').GatewayJobEvent {
   return event as import('./jobs.js').GatewayJobEvent
+}
+
+function sanitizePublicEvent(event: Record<string, unknown>): import('./jobs.js').GatewayJobEvent {
+  const { request_id: _, ...rest } = event
+  return asGatewayEvent(rest)
 }
 
 function setRequestId(request: FastifyRequest, requestId?: string): void {

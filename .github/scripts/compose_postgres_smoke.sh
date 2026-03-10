@@ -58,6 +58,7 @@ docker_cmd compose --env-file .env.compose.postgres.example up -d --remove-orpha
 python3 - <<'PY'
 import json
 import os
+import re
 import time
 import urllib.request
 
@@ -95,6 +96,13 @@ def request_bytes(url: str, *, method: str = "GET", payload: dict | None = None)
         return response.status, response.read(), dict(response.headers.items())
 
 
+def asset_paths_from_html(html: str):
+    return sorted(set(
+        match.group(1)
+        for match in re.finditer(r"""(?:src|href)=["'](/assets/[^"']+)["']""", html)
+    ))
+
+
 def wait_for_json(url: str, *, timeout: int = 420):
     deadline = time.time() + timeout
     last_error = ""
@@ -118,15 +126,28 @@ _, lexicon_health = wait_for_json(f"http://127.0.0.1:{lexicon_port}/health")
 _, assignments_health = wait_for_json(f"http://127.0.0.1:{assignments_port}/health")
 _, nlp_health = wait_for_json(f"http://127.0.0.1:{nlp_port}/internal/v1/system/health")
 _, export_health = wait_for_json(f"http://127.0.0.1:{export_port}/internal/v1/system/health")
+_, warmup = wait_for_json(f"http://127.0.0.1:{gateway_port}/api/system/warmup")
 
 assert gateway_health["status"] == "ok"
 assert lexicon_health["storage_backend"] == "postgres"
 assert assignments_health["storage_backend"] == "postgres"
 assert nlp_health["status"] == "ok"
 assert export_health["status"] == "ok"
+assert set(warmup).issuperset({"running", "ready", "failed", "error_message", "elapsed_sec"})
+
+index_status, index_html = request_text(f"http://127.0.0.1:{gateway_port}/")
+assert index_status == 200
+assert '<div id="root"></div>' in index_html
+asset_paths = asset_paths_from_html(index_html)
+assert asset_paths
+for asset_path in asset_paths:
+    asset_status, asset_body, _ = request_bytes(f"http://127.0.0.1:{gateway_port}{asset_path}")
+    assert asset_status == 200
+    assert len(asset_body) > 0
 
 _, assignments = request_json(f"http://127.0.0.1:{gateway_port}/api/assignments")
-assert len(assignments) >= 2
+assert isinstance(assignments, list)
+baseline_assignment_count = len(assignments)
 
 _, category_payload = request_json(
     f"http://127.0.0.1:{gateway_port}/api/lexicon/categories",
@@ -168,7 +189,7 @@ assert '"type":"result"' in stream
 assert "Compose Assignment Smoke" in stream
 
 _, statistics = request_json(f"http://127.0.0.1:{gateway_port}/api/statistics")
-assert statistics["overview"]["total_assignments"] >= 3
+assert statistics["overview"]["total_assignments"] >= baseline_assignment_count + 1
 
 assignment_ids = []
 for index in range(1, 4):
@@ -204,7 +225,7 @@ _, bulk_stream = request_text(
 assert '"type":"result"' in bulk_stream
 
 _, statistics = request_json(f"http://127.0.0.1:{gateway_port}/api/statistics")
-assert statistics["overview"]["total_assignments"] >= 6
+assert statistics["overview"]["total_assignments"] >= baseline_assignment_count + 4
 assert 0 <= statistics["overview"]["average_assignment_coverage"] <= 100
 
 _, export_body, export_headers = request_bytes(f"http://127.0.0.1:{gateway_port}/api/lexicon/export")
@@ -229,5 +250,14 @@ docker_cmd exec "$POSTGRES_CONTAINER_ID" \
 
 grep -q '^assignments-service:0001_init$' /tmp/compose-smoke-migrations.txt
 grep -q '^lexicon-service:0001_init$' /tmp/compose-smoke-migrations.txt
+
+echo "[compose-smoke] verifying owner schemas in postgres"
+docker_cmd exec "$POSTGRES_CONTAINER_ID" \
+  psql -U postgres -d vocabulary -At -c \
+  "select schema_name from information_schema.schemata where schema_name in ('assignments', 'lexicon') order by schema_name;" \
+  | tee /tmp/compose-smoke-schemas.txt
+
+grep -q '^assignments$' /tmp/compose-smoke-schemas.txt
+grep -q '^lexicon$' /tmp/compose-smoke-schemas.txt
 
 echo "[compose-smoke] success"

@@ -9,7 +9,7 @@ from python_services import export_app, nlp_app
 class _StubParseUseCase:
     def execute(self, *, text: str, sync: bool, third_pass_enabled: bool, think_mode: bool):
         payload = SimpleNamespace(
-            table=[["word", "word", "word", "General", "exact", "word", 1.0, True]],
+            table=[["1", "word", "word", "word", "General", "exact", "word", "1.0", "yes"]],
             summary={"tokens": 1},
             status_message=f"parsed:{text}",
             error_message="",
@@ -78,6 +78,9 @@ def test_nlp_parse_endpoint_serializes_rows():
     )
     payload = nlp_app.parse_text(nlp_app.ParseRequest(text="Hello"))
     assert payload["rows"][0]["token"] == "word"
+    assert payload["rows"][0]["index"] == 1
+    assert payload["rows"][0]["confidence"] == "1.0"
+    assert payload["rows"][0]["known"] == "true"
     assert payload["status_message"] == "parsed:Hello"
 
 

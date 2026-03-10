@@ -5,6 +5,7 @@ import type { Pool } from 'pg'
 export interface PostgresMigrationConfig {
   serviceName: string
   migrationsDir: string
+  schemaName: string
 }
 
 export async function runPostgresMigrations(
@@ -28,7 +29,7 @@ export async function runPostgresMigrations(
     await client.query('BEGIN')
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['service-postgres-migrations'])
     await client.query(`
-      CREATE TABLE IF NOT EXISTS service_postgres_migrations (
+      CREATE TABLE IF NOT EXISTS public.service_postgres_migrations (
         service_name TEXT NOT NULL,
         version TEXT NOT NULL,
         filename TEXT NOT NULL,
@@ -36,13 +37,16 @@ export async function runPostgresMigrations(
         PRIMARY KEY(service_name, version)
       )
     `)
+    const schemaName = normalizeSchemaName(config.schemaName)
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schemaName)}`)
+    await client.query(`SET LOCAL search_path TO ${quoteIdent(schemaName)}, public`)
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`postgres-migrations:${config.serviceName}`])
 
     const applied = new Set<string>(
       (await client.query(
         `
           SELECT version
-          FROM service_postgres_migrations
+          FROM public.service_postgres_migrations
           WHERE service_name = $1
           ORDER BY version ASC
         `,
@@ -59,7 +63,7 @@ export async function runPostgresMigrations(
       }
       await client.query(
         `
-          INSERT INTO service_postgres_migrations(service_name, version, filename)
+          INSERT INTO public.service_postgres_migrations(service_name, version, filename)
           VALUES ($1, $2, $3)
         `,
         [config.serviceName, migration.version, migration.filename],
@@ -73,6 +77,21 @@ export async function runPostgresMigrations(
   } finally {
     client.release()
   }
+}
+
+function normalizeSchemaName(input: string): string {
+  const value = String(input ?? '').trim()
+  if (!value) {
+    throw new Error('Postgres schema name must not be empty')
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid Postgres schema name: ${value}`)
+  }
+  return value
+}
+
+function quoteIdent(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
 }
 
 async function resolveProjectPath(input: string): Promise<string> {

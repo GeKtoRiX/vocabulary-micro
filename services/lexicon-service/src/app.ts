@@ -1,6 +1,16 @@
 import fastify from 'fastify'
 import {
+  assertCategoryMutationResultContract,
+  assertExportSnapshotContract,
+  assertInsertManyResultContract,
+  assertLexiconIndexContract,
+  assertLexiconSearchResultContract,
+  assertLexiconStatisticsContract,
+  assertMutationMessageContract,
+  assertMweExpressionMutationContract,
+  assertMweSenseMutationContract,
   loadConfig,
+  assertRowSyncResultContract,
 } from '@vocabulary/shared'
 import {
   LexiconRepository,
@@ -32,12 +42,16 @@ export function buildLexiconServiceApp() {
   }))
 
   app.get('/lexicon/entries', async (request, reply) => {
-    reply.send(await repository.searchEntries(request.query as Record<string, unknown>))
+    const payload = await repository.searchEntries(request.query as Record<string, unknown>)
+    assertLexiconSearchResultContract(payload)
+    reply.send(payload)
   })
 
   app.post('/lexicon/entries', async (request, reply) => {
     try {
-      reply.send(await repository.addEntry(request.body as AddEntryRequest))
+      const payload = await repository.addEntry(request.body as AddEntryRequest)
+      assertMutationMessageContract(payload)
+      reply.send(payload)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -69,32 +83,46 @@ export function buildLexiconServiceApp() {
   })
 
   app.post('/lexicon/categories', async (request) => {
-    return repository.createCategory(request.body as CategoryRequest)
+    const payload = await repository.createCategory(request.body as CategoryRequest)
+    assertCategoryMutationResultContract(payload)
+    return payload
   })
 
   app.delete('/lexicon/categories/:name', async (request) => {
-    return repository.deleteCategory(String((request.params as { name: string }).name))
+    const payload = await repository.deleteCategory(String((request.params as { name: string }).name))
+    assertCategoryMutationResultContract(payload)
+    return payload
   })
 
   app.get('/internal/v1/lexicon/search', async (request, reply) => {
-    reply.send(await repository.searchEntries(request.query as Record<string, unknown>))
+    const payload = await repository.searchEntries(request.query as Record<string, unknown>)
+    assertLexiconSearchResultContract(payload)
+    reply.send(payload)
   })
 
   app.post('/internal/v1/lexicon/sync-row', async (request) => {
-    return repository.syncRow(request.body as RowSyncRequest)
+    const payload = await repository.syncRow(request.body as RowSyncRequest)
+    assertRowSyncResultContract(payload)
+    return payload
   })
 
   app.get('/internal/v1/lexicon/statistics', async () => {
-    return repository.getStatistics()
+    const payload = await repository.getStatistics()
+    assertLexiconStatisticsContract(payload)
+    return payload
   })
 
   app.get('/internal/v1/lexicon/categories', async () => {
-    return { categories: await repository.listCategories() }
+    const payload = { categories: await repository.listCategories(), message: '' }
+    assertCategoryMutationResultContract(payload)
+    return { categories: payload.categories }
   })
 
   app.post('/internal/v1/lexicon/categories', async (request, reply) => {
     try {
-      reply.send(await repository.createCategory(request.body as CategoryRequest))
+      const payload = await repository.createCategory(request.body as CategoryRequest)
+      assertCategoryMutationResultContract(payload)
+      reply.send(payload)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -102,7 +130,9 @@ export function buildLexiconServiceApp() {
 
   app.post('/internal/v1/lexicon/entries', async (request, reply) => {
     try {
-      reply.send(await repository.addEntry(request.body as AddEntryRequest))
+      const payload = await repository.addEntry(request.body as AddEntryRequest)
+      assertMutationMessageContract(payload)
+      reply.send(payload)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -110,23 +140,31 @@ export function buildLexiconServiceApp() {
 
   app.post('/internal/v1/lexicon/entries/bulk', async (request, reply) => {
     try {
-      reply.send(await repository.addEntries(request.body as BulkAddEntriesRequest))
+      const payload = await repository.addEntries(request.body as BulkAddEntriesRequest)
+      assertInsertManyResultContract(payload)
+      reply.send(payload)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
     }
   })
 
   app.get('/internal/v1/lexicon/index', async () => {
-    return repository.buildIndex()
+    const payload = await repository.buildIndex()
+    assertLexiconIndexContract(payload)
+    return payload
   })
 
   app.get('/internal/v1/lexicon/export-snapshot', async () => {
-    return repository.exportSnapshot()
+    const payload = await repository.exportSnapshot()
+    assertExportSnapshotContract(payload)
+    return payload
   })
 
   app.post('/internal/v1/lexicon/mwe/expression', async (request, reply) => {
     try {
-      reply.send(await repository.upsertMweExpression(request.body as UpsertMweExpressionRequest))
+      const payload = await repository.upsertMweExpression(request.body as UpsertMweExpressionRequest)
+      assertMweExpressionMutationContract(payload)
+      reply.send(payload)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -134,7 +172,9 @@ export function buildLexiconServiceApp() {
 
   app.post('/internal/v1/lexicon/mwe/sense', async (request, reply) => {
     try {
-      reply.send(await repository.upsertMweSense(request.body as UpsertMweSenseRequest))
+      const payload = await repository.upsertMweSense(request.body as UpsertMweSenseRequest)
+      assertMweSenseMutationContract(payload)
+      reply.send(payload)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -148,7 +188,10 @@ function createLexiconRepository(config: ReturnType<typeof loadConfig>): Lexicon
     return new LexiconRepository(config.lexiconDbPath)
   }
 
-  const repository = new PostgresLexiconRepository(config.lexiconService.postgresUrl)
+  const repository = new PostgresLexiconRepository(
+    config.lexiconService.postgresUrl,
+    config.lexiconService.schemaName,
+  )
   if (!config.lexiconService.bootstrapFromSqlite) {
     return repository
   }

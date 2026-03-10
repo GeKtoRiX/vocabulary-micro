@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 
 function env(name: string, fallback: string): string {
@@ -44,11 +45,13 @@ export interface SharedServiceConfig {
     storageBackend: 'sqlite' | 'postgres'
     postgresUrl: string
     bootstrapFromSqlite: boolean
+    schemaName: string
   }
   assignmentsService: HttpServiceConfig & {
     storageBackend: 'sqlite' | 'postgres'
     postgresUrl: string
     bootstrapFromSqlite: boolean
+    schemaName: string
   }
   nlpService: HttpServiceConfig
   exportService: HttpServiceConfig
@@ -56,7 +59,7 @@ export interface SharedServiceConfig {
 
 export function loadConfig(): SharedServiceConfig {
   const cwd = process.cwd()
-  const projectRoot = path.basename(cwd) === 'services' ? path.dirname(cwd) : cwd
+  const projectRoot = detectProjectRoot(cwd)
   const ownerServicesStorageBackend = env('OWNER_SERVICES_STORAGE_BACKEND', 'sqlite') as 'sqlite' | 'postgres'
   const ownerServicesPostgresUrl = env('OWNER_SERVICES_POSTGRES_URL', 'postgresql://postgres:postgres@127.0.0.1:5432/vocabulary')
   const ownerServicesBootstrapFromSqlite = envBool('OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE', false)
@@ -81,6 +84,7 @@ export function loadConfig(): SharedServiceConfig {
       storageBackend: env('LEXICON_STORAGE_BACKEND', ownerServicesStorageBackend) as 'sqlite' | 'postgres',
       postgresUrl: env('LEXICON_POSTGRES_URL', ownerServicesPostgresUrl),
       bootstrapFromSqlite: envBool('LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE', ownerServicesBootstrapFromSqlite),
+      schemaName: env('LEXICON_POSTGRES_SCHEMA', 'lexicon'),
     },
     assignmentsService: {
       host: env('ASSIGNMENTS_SERVICE_HOST', '127.0.0.1'),
@@ -88,6 +92,7 @@ export function loadConfig(): SharedServiceConfig {
       storageBackend: env('ASSIGNMENTS_STORAGE_BACKEND', ownerServicesStorageBackend) as 'sqlite' | 'postgres',
       postgresUrl: env('ASSIGNMENTS_POSTGRES_URL', ownerServicesPostgresUrl),
       bootstrapFromSqlite: envBool('ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE', ownerServicesBootstrapFromSqlite),
+      schemaName: env('ASSIGNMENTS_POSTGRES_SCHEMA', 'assignments'),
     },
     nlpService: {
       host: env('NLP_SERVICE_HOST', '127.0.0.1'),
@@ -97,5 +102,23 @@ export function loadConfig(): SharedServiceConfig {
       host: env('EXPORT_SERVICE_HOST', '127.0.0.1'),
       port: envInt('EXPORT_SERVICE_PORT', 8768),
     },
+  }
+}
+
+function detectProjectRoot(cwd: string): string {
+  let current = cwd
+  while (true) {
+    if (
+      fs.existsSync(path.join(current, 'start.sh'))
+      && fs.existsSync(path.join(current, 'services'))
+      && fs.existsSync(path.join(current, 'web'))
+    ) {
+      return current
+    }
+    const parent = path.dirname(current)
+    if (parent === current) {
+      return path.basename(cwd) === 'services' ? path.dirname(cwd) : cwd
+    }
+    current = parent
   }
 }

@@ -1,7 +1,7 @@
 # CONTINUITY.md
 
 ## Current Task
-Оптимизация governance-контура для автоматического доступа агентов.
+Postgres-first cutover hardening migration backend и runtime parity.
 
 ## Progress
 100%
@@ -10,7 +10,7 @@
 Ничем не заблокировано.
 
 ## Next Step
-Перед следующим изменением в репозитории перечитать `AGENTS.md`, `MEMORY.md` и `CONTINUITY.md`, затем выполнять задачу по циклу `read → do → log → save`.
+Следующим шагом зафиксировать rollback/failure matrix для `GATEWAY_*_BACKEND` в compose/host-run и затем перевести default operator docs/CI на Postgres-first runtime без legacy как primary path.
 
 ## Last Updated
 2026-03-10

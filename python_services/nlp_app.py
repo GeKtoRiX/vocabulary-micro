@@ -63,10 +63,33 @@ def _components():
 def _serialize_parse_result(payload: Any) -> dict[str, Any]:
     rows = []
     columns = ["token", "normalized", "lemma", "categories", "source", "matched_form", "confidence", "known"]
-    for index, row in enumerate(payload.table):
-        entry = {"index": index + 1}
-        for column, value in zip(columns, row):
-            entry[column] = value
+    for fallback_index, row in enumerate(payload.table, start=1):
+        values = list(row)
+        if len(values) >= len(columns) + 1:
+            raw_index = values[0]
+            values = values[1:]
+        else:
+            raw_index = fallback_index
+
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            index = fallback_index
+
+        entry = {"index": index}
+        for column, value in zip(columns, values):
+            if column == "known":
+                normalized = str(value).strip().lower()
+                if normalized in {"yes", "true", "1"}:
+                    entry[column] = "true"
+                elif normalized in {"no", "false", "0"}:
+                    entry[column] = "false"
+                else:
+                    entry[column] = str(value)
+                continue
+            entry[column] = "" if value is None else str(value)
+        for column in columns:
+            entry.setdefault(column, "")
         rows.append(entry)
     return {
         "rows": rows,

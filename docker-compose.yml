@@ -68,7 +68,7 @@ services:
     volumes:
       - ./:/app
     command: >
-      sh -lc "npm install && npm --workspace @vocabulary/lexicon-service run dev"
+      sh -lc "/app/scripts/ensure_services_node_modules.sh && npm --workspace @vocabulary/lexicon-service run dev"
     environment:
       LEXICON_SERVICE_HOST: 0.0.0.0
       LEXICON_SERVICE_PORT: 4011
@@ -78,6 +78,7 @@ services:
       LEXICON_STORAGE_BACKEND: ${LEXICON_STORAGE_BACKEND:-postgres}
       LEXICON_POSTGRES_URL: ${LEXICON_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/vocabulary}
       LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE: ${LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE:-1}
+      LEXICON_POSTGRES_SCHEMA: ${LEXICON_POSTGRES_SCHEMA:-lexicon}
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,7 +91,7 @@ services:
     volumes:
       - ./:/app
     command: >
-      sh -lc "npm install && npm --workspace @vocabulary/assignments-service run dev"
+      sh -lc "/app/scripts/ensure_services_node_modules.sh && npm --workspace @vocabulary/assignments-service run dev"
     environment:
       ASSIGNMENTS_SERVICE_HOST: 0.0.0.0
       ASSIGNMENTS_SERVICE_PORT: 4012
@@ -104,6 +105,7 @@ services:
       ASSIGNMENTS_STORAGE_BACKEND: ${ASSIGNMENTS_STORAGE_BACKEND:-postgres}
       ASSIGNMENTS_POSTGRES_URL: ${ASSIGNMENTS_POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/vocabulary}
       ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE: ${ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE:-1}
+      ASSIGNMENTS_POSTGRES_SCHEMA: ${ASSIGNMENTS_POSTGRES_SCHEMA:-assignments}
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,7 +118,7 @@ services:
     volumes:
       - ./:/app
     command: >
-      sh -lc "npm install && npm --workspace @vocabulary/api-gateway run dev"
+      sh -lc "/app/scripts/ensure_services_node_modules.sh && npm --workspace @vocabulary/api-gateway run dev"
     environment:
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 8765

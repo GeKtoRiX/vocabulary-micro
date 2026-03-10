@@ -37,12 +37,18 @@ type DbRow = Record<string, unknown>
 export class PostgresAssignmentsRepository {
   private readonly pool: Pool
   private readonly ready: Promise<void>
+  private readonly schemaName: string
 
-  constructor(private readonly postgresUrl: string) {
-    this.pool = new Pool({ connectionString: postgresUrl })
+  constructor(private readonly postgresUrl: string, schemaName = 'assignments') {
+    this.schemaName = normalizeSchemaName(schemaName)
+    this.pool = new Pool({
+      connectionString: postgresUrl,
+      options: `-c search_path=${this.schemaName},public`,
+    })
     this.ready = runPostgresMigrations(this.pool, {
       serviceName: 'assignments-service',
       migrationsDir: 'services/assignments-service/infrastructure/postgres_migrations',
+      schemaName: this.schemaName,
     })
   }
 
@@ -365,7 +371,7 @@ export class PostgresAssignmentsRepository {
   }
 
   private async syncSequence(client: PoolClient | Pool, tableName: string, columnName: string): Promise<void> {
-    const sequenceName = `${tableName}_${columnName}_seq`
+    const sequenceName = `${this.schemaName}.${tableName}_${columnName}_seq`
     const exists = (await client.query(
       'SELECT to_regclass($1) IS NOT NULL AS exists',
       [sequenceName],
@@ -385,4 +391,15 @@ export class PostgresAssignmentsRepository {
       [sequenceName],
     )
   }
+}
+
+function normalizeSchemaName(input: string): string {
+  const value = String(input ?? '').trim()
+  if (!value) {
+    throw new Error('Postgres schema name must not be empty.')
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid Postgres schema name: ${value}`)
+  }
+  return value
 }

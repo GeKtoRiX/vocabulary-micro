@@ -21,6 +21,7 @@ afterEach(async () => {
   delete process.env.LEXICON_DB_PATH
   delete process.env.ASSIGNMENTS_DB_PATH
   delete process.env.GATEWAY_SERVE_STATIC
+  delete process.env.GATEWAY_STATIC_DIR
 })
 
 describe('service smoke', () => {
@@ -57,7 +58,24 @@ describe('service smoke', () => {
     try {
       const result = await app.inject({ method: 'GET', url: '/api/system/health' })
       expect(result.statusCode).toBe(200)
-      expect(result.json().status).toBe('ok')
+      expect(result.json()).toEqual({ status: 'ok' })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('api-gateway serves frontend shell from root path when static assets are enabled', async () => {
+    const staticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-static-'))
+    tempDirs.push(staticDir)
+    fs.writeFileSync(path.join(staticDir, 'index.html'), '<!doctype html><html><body><div id="root"></div></body></html>')
+    process.env.GATEWAY_SERVE_STATIC = '1'
+    process.env.GATEWAY_STATIC_DIR = staticDir
+
+    const app = buildGatewayApp()
+    try {
+      const result = await app.inject({ method: 'GET', url: '/' })
+      expect(result.statusCode).toBe(200)
+      expect(result.body).toContain('<div id="root"></div>')
     } finally {
       await app.close()
     }

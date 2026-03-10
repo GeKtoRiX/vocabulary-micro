@@ -48,12 +48,18 @@ type DbRow = Record<string, unknown>
 export class PostgresLexiconRepository {
   private readonly pool: Pool
   private readonly ready: Promise<void>
+  private readonly schemaName: string
 
-  constructor(private readonly postgresUrl: string) {
-    this.pool = new Pool({ connectionString: postgresUrl })
+  constructor(private readonly postgresUrl: string, schemaName = 'lexicon') {
+    this.schemaName = normalizeSchemaName(schemaName)
+    this.pool = new Pool({
+      connectionString: postgresUrl,
+      options: `-c search_path=${this.schemaName},public`,
+    })
     this.ready = runPostgresMigrations(this.pool, {
       serviceName: 'lexicon-service',
       migrationsDir: 'services/lexicon-service/infrastructure/postgres_migrations',
+      schemaName: this.schemaName,
     })
   }
 
@@ -711,11 +717,11 @@ export class PostgresLexiconRepository {
       `
         SELECT column_name
         FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = $1
+        WHERE table_schema = $1
+          AND table_name = $2
         ORDER BY ordinal_position ASC
       `,
-      [name],
+      [this.schemaName, name],
     )).rows.map((row: DbRow) => String(row.column_name))
     const orderBy = name === 'lexicon_entries'
       ? ' ORDER BY id ASC'
@@ -759,16 +765,21 @@ export class PostgresLexiconRepository {
   }
 
   private async syncSerialSequence(client: PoolClient, tableName: string, columnName: string): Promise<void> {
-    await client.query(
-      `
-        SELECT setval(
-          pg_get_serial_sequence($1, $2),
-          COALESCE((SELECT MAX(${this.quoteIdent(columnName)}) FROM ${this.quoteIdent(tableName)}), 0),
-          true
-        )
-      `,
+    const sequenceName = String((await client.query(
+      'SELECT pg_get_serial_sequence($1, $2) AS sequence_name',
       [tableName, columnName],
-    )
+    )).rows[0]?.sequence_name ?? '')
+    if (!sequenceName) {
+      return
+    }
+    const maxId = Number((await client.query(
+      `SELECT COALESCE(MAX(${this.quoteIdent(columnName)}), 0) AS max_id FROM ${this.quoteIdent(tableName)}`,
+    )).rows[0]?.max_id ?? 0)
+    if (maxId > 0) {
+      await client.query('SELECT setval($1, $2, true)', [sequenceName, maxId])
+      return
+    }
+    await client.query('SELECT setval($1, 1, false)', [sequenceName])
   }
 
   private async bumpMeta(client: PoolClient | Pool, target: 'lexicon' | 'mwe'): Promise<void> {
@@ -956,4 +967,15 @@ export class PostgresLexiconRepository {
     }
     return { category: 'Auto Added', fallbackUsed: true }
   }
+}
+
+function normalizeSchemaName(input: string): string {
+  const value = String(input ?? '').trim()
+  if (!value) {
+    throw new Error('Postgres schema name must not be empty.')
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid Postgres schema name: ${value}`)
+  }
+  return value
 }

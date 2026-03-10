@@ -38,6 +38,18 @@
 - Проверка инструментов: `python3 -m pytest -q tests/unit/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-10` — Compose-рантайм для TypeScript owner-services переведён на общий bootstrap `scripts/ensure_services_node_modules.sh` с файловой блокировкой перед `npm install`.
+  Зачем: убрать недетерминированные падения `lexicon-service`/`assignments-service`/`api-gateway` при параллельном старте в `docker compose`, где сервисы делят один bind-mounted `/app/services/node_modules`.
+- `2026-03-10` — Internal/public parse serialization нормализована вокруг фактического SPA-контракта: API больше не сдвигает колонки `ParseAndSyncResultDTO.table`, а `known`/`confidence` фиксированы как строковые поля в OpenAPI и runtime validators.
+  Зачем: устранить runtime drift между legacy parse table и gateway/NLP contract layer, из-за которого `parse` падал на internal validation и фронт получал некорректные token rows.
+- `2026-03-10` — Workspace dev entrypoints TS-сервисов вынесены в `src/dev.ts`, а `loadConfig()` научен подниматься до корня репозитория.
+  Зачем: `npm --workspace ... run dev` запускал сервисы из package cwd и ломал поиск `web/dist`, SQLite путей и других project-root-зависимых файлов.
+- `2026-03-10` — Owner-service Postgres runtime закреплён за отдельными schema `lexicon` и `assignments`, а таблица учёта миграций `service_postgres_migrations` оставлена в `public`.
+  Зачем: изолировать данные владельцев без shared tables и сохранить единый служебный bookkeeping-слой для migration runner и smoke-проверок.
+- `2026-03-10` — `services/contracts/internal-v1.openapi.yaml` расширен до source of truth для внутренних `/internal/v1/*` DTO, а TS migration slice получил общий contract/validator слой в `services/shared/src/contracts.ts`.
+  Зачем: зафиксировать межсервисные payload shape до дальнейшего cutover и сделать contract drift обнаружимым тестами и runtime-валидацией.
+- `2026-03-10` — `api-gateway` перестал добавлять `request_id` в публичный `/api/system/health` и SSE frames.
+  Зачем: сохранить strict public parity с legacy FastAPI, оставив correlation id только во внутренних заголовках и трассировке.
 - `2026-03-10` — Создан `CLAUDE.md` в корне репозитория как автозагружаемая точка входа для Claude Code и совместимых агентов.
   Зачем: Claude Code автоматически читает `CLAUDE.md` при старте; без него агенты не знают о `AGENTS.md` и governance-цикле.
 - `2026-03-10` — Создан `skills/system_health_guardian.py` с функцией `audit_ui_imports`.

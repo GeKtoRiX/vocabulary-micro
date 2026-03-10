@@ -207,7 +207,7 @@ Module-level singletons initialized in lifespan:
 - `python_services/nlp_app.py` — `/internal/v1/nlp/*`; reads lexicon/MWE state via `lexicon-service`
 - `python_services/export_app.py` — `/internal/v1/export/*`, snapshot-based via `lexicon-service`
 - `python_services/nlp_components.py` — NLP component wiring shared between nlp_app and legacy path
-- `services/contracts/internal-v1.openapi.yaml` — internal contract baseline
+- `services/contracts/internal-v1.openapi.yaml` — source of truth for internal `/internal/v1/*` contracts
 
 ## 8) Web Layer (`web/`)
 
@@ -282,6 +282,7 @@ Build: `cd web && npm run build` → `web/dist/`
 - `.env.example`, `.env.postgres.example`, `.env.compose.postgres.example` — local runtime templates for SQLite default and Postgres-first flows
 - `.env.compose.sqlite.example` — SQLite compose fallback template
 - `docker-compose.yml` — Postgres-first compose runtime
+- `LEXICON_POSTGRES_SCHEMA` / `ASSIGNMENTS_POSTGRES_SCHEMA` — owner schema isolation toggles for Postgres runtime
 - `requirements.compose.txt` — additional requirements for compose deployments
 
 ## 11) Test Coverage Map

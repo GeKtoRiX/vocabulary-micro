@@ -32,6 +32,8 @@ Current migration ownership:
 - `lexicon-service` is the active owner for lexicon CRUD/search/categories/statistics and row sync
 - `assignments-service` is the active owner for assignments CRUD/scan/update/rescan/quick-add/statistics
 - `nlp-service` is the default parse backend for `/api/parse` and `/api/system/warmup`
+- `export-service` is the default export backend for `/api/lexicon/export`
+- legacy FastAPI runtime is kept as compatibility fallback and parity reference, not as the primary path
 
 Composition root: `infrastructure/bootstrap/web_builder.py`
 
@@ -39,10 +41,10 @@ Composition root: `infrastructure/bootstrap/web_builder.py`
 
 ```bash
 # Full migration slice
-./start.sh                     # gateway + services + built SPA
+./start.sh --postgres          # recommended production-like path: gateway + services on Postgres
+./start.sh                     # local SQLite fallback path
 ./start.sh --build             # build frontend, then start gateway + services
 ./start.sh --dev               # Vite dev server + gateway + services
-./start.sh --postgres          # owner services on Postgres using OWNER_SERVICES_* defaults
 
 # Legacy backend only
 LEGACY_BACKEND_PORT=8766 python3 main_web.py
@@ -70,6 +72,10 @@ cp .env.postgres.example .env.postgres
 ./start.sh --postgres
 ```
 
+Recommended default for migration verification: prefer the Postgres-first runtime and use plain `./start.sh`
+only when you explicitly want the SQLite dev fallback. `./start.sh` without `--postgres`
+does not switch owner services to Postgres by itself.
+
 Compose Postgres runtime:
 
 ```bash
@@ -95,6 +101,7 @@ docker compose --env-file .env.compose.sqlite up
 - Lexicon DB: `infrastructure/runtime/data/lexicon.sqlite3`
 - Assignments DB: `infrastructure/runtime/data/assignments.db` (includes `assignment_audio` metadata)
 - Both owner services support `sqlite|postgres` storage backends via `LEXICON_STORAGE_BACKEND` and `ASSIGNMENTS_STORAGE_BACKEND`
+- In Postgres mode, owner data is isolated by schema: `LEXICON_POSTGRES_SCHEMA=lexicon` and `ASSIGNMENTS_POSTGRES_SCHEMA=assignments`
 
 Critical invariant:
 

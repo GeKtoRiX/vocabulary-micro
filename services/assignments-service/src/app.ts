@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import fastify from 'fastify'
 import {
+  assertAssignmentScanResultContract,
+  assertAssignmentsStatisticsContract,
+  assertBulkRescanResultContract,
+  assertExtractSentenceResultContract,
+  assertLexiconSearchResultContract,
+  assertQuickAddSuggestionContract,
+  assertRowSyncResultContract,
   buildUrl,
   loadConfig,
   requestJson,
@@ -70,6 +77,7 @@ export function buildAssignmentsServiceApp() {
         assignment_id?: number | null
       }
       const result = await quickAddMissingWord(config, body)
+      assertRowSyncResultContract(result)
       reply.send(result)
     } catch (error) {
       reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
@@ -93,7 +101,7 @@ export function buildAssignmentsServiceApp() {
       .map((item) => availableMap.get(String(item).toLowerCase()) ?? (available.length ? '' : item))
       .filter(Boolean)
     const recommended = candidateCategories[0] ?? (available[0] ?? suggestion.recommended_category)
-    return {
+    const payload = {
       term: String(body.term ?? '').trim().toLowerCase(),
       recommended_category: recommended,
       candidate_categories: candidateCategories.length ? candidateCategories : [recommended],
@@ -101,6 +109,8 @@ export function buildAssignmentsServiceApp() {
       rationale: suggestion.rationale,
       suggested_example_usage: await extractSentenceViaApi(config, body.content_completed, body.term),
     }
+    assertQuickAddSuggestionContract(payload)
+    return payload
   })
 
   app.post('/internal/v1/assignments/scan', async (request) => {
@@ -115,6 +125,7 @@ export function buildAssignmentsServiceApp() {
       content_completed: String(body.content_completed ?? ''),
     })
     const result = await scanAndPersist(config, repository, saved)
+    assertAssignmentScanResultContract(result)
     return result
   })
 
@@ -134,7 +145,9 @@ export function buildAssignmentsServiceApp() {
     if (!updated) {
       throw new Error(`Assignment #${assignmentId} not found.`)
     }
-    return await scanAndPersist(config, repository, updated)
+    const result = await scanAndPersist(config, repository, updated)
+    assertAssignmentScanResultContract(result)
+    return result
   })
 
   app.post('/internal/v1/assignments/bulk-rescan', async (request) => {
@@ -166,11 +179,13 @@ export function buildAssignmentsServiceApp() {
         failed.push(id)
       }
     }
-    return {
+    const payload = {
       success_count: processed.length,
       failed_count: failed.length,
       message: `Bulk rescan: ${processed.length} succeeded, ${failed.length} failed.`,
     }
+    assertBulkRescanResultContract(payload)
+    return payload
   })
 
   app.get('/internal/v1/assignments/statistics', async () => {
@@ -179,12 +194,14 @@ export function buildAssignmentsServiceApp() {
     const average = totalAssignments
       ? coverage.reduce((sum, item) => sum + item.coverage_pct, 0) / totalAssignments
       : 0
-    return {
+    const payload = {
       assignment_coverage: coverage,
       total_assignments: totalAssignments,
       average_assignment_coverage: average,
       low_coverage_count: coverage.filter((item) => item.coverage_pct < 60).length,
     }
+    assertAssignmentsStatisticsContract(payload)
+    return payload
   })
 
   return app
@@ -200,6 +217,9 @@ async function fetchLexiconSearch(
   return requestJson(serviceBaseUrl(config.lexiconService), '/internal/v1/lexicon/search', {
     method: 'GET',
     query,
+  }).then((payload) => {
+    assertLexiconSearchResultContract(payload)
+    return payload
   }) as Promise<{
     rows: LexiconSearchRow[]
     available_categories: string[]
@@ -249,7 +269,10 @@ function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): Ass
     return new AssignmentsRepository(config.assignmentsDbPath)
   }
 
-  const repository = new PostgresAssignmentsRepository(config.assignmentsService.postgresUrl)
+  const repository = new PostgresAssignmentsRepository(
+    config.assignmentsService.postgresUrl,
+    config.assignmentsService.schemaName,
+  )
   if (!config.assignmentsService.bootstrapFromSqlite) {
     return repository
   }
@@ -373,7 +396,7 @@ async function quickAddMissingWord(
 
   const requestId = randomUUID().replace(/-/g, '')
   const example = await extractSentenceViaApi(config, input.content_completed, term)
-  const response = await fetch(buildUrl(serviceBaseUrl(config.lexiconService), '/lexicon/entries'), {
+  const response = await fetch(buildUrl(serviceBaseUrl(config.lexiconService), '/internal/v1/lexicon/entries'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -409,6 +432,7 @@ async function extractSentenceViaApi(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: content, term }),
     })
+    assertExtractSentenceResultContract(payload)
     return String(payload.sentence ?? '').trim() || extractSentence(content, term)
   } catch {
     return extractSentence(content, term)

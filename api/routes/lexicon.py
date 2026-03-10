@@ -222,9 +222,10 @@ async def export_lexicon(
     result = await loop.run_in_executor(
         get_executor(), lambda: export_uc.execute(output_path=tmp_path)
     )
-    if result.success and result.output_path and Path(result.output_path).exists():
+    payload = result.data
+    if result.success and payload is not None and payload.output_path and Path(payload.output_path).exists():
         return FileResponse(
-            path=str(result.output_path),
+            path=str(payload.output_path),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             filename="lexicon_export.xlsx",
         )

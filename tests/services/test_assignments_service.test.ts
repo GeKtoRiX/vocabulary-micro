@@ -36,13 +36,30 @@ function configureAssignmentsEnv(dir: string): void {
   process.env.NLP_SERVICE_PORT = '8767'
 }
 
+function makeLexiconRow(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    confidence: 1,
+    first_seen_at: null,
+    request_id: null,
+    created_at: null,
+    reviewed_at: null,
+    reviewed_by: null,
+    review_note: null,
+    ...row,
+  }
+}
+
 function stubAssignmentsFetch(lexiconRows: Array<Record<string, unknown>>) {
   const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/internal/v1/lexicon/search')) {
       return jsonResponse({
-        rows: lexiconRows,
+        rows: lexiconRows.map((row) => makeLexiconRow(row)),
         available_categories: ['Auto Added', 'Verb', 'Adverb', 'Noun', 'Phrasal Verb'],
+        total_rows: lexiconRows.length,
+        filtered_rows: lexiconRows.length,
+        counts_by_status: { approved: lexiconRows.length },
+        message: 'ok',
       })
     }
     if (url.includes('/lexicon/entries')) {

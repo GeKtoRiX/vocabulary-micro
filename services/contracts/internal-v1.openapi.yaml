@@ -1,89 +1,860 @@
 openapi: 3.1.0
 info:
   title: Vocabulary Internal Service Contracts
-  version: 1.0.0
+  version: 1.1.0
+  description: |
+    Source of truth for `/internal/v1/*` contracts used between TypeScript owner-services,
+    the public gateway, and Python capability APIs.
 servers:
   - url: /internal/v1
 paths:
+  /system/health:
+    get:
+      summary: Internal service liveness probe.
+      operationId: getInternalHealth
+      responses:
+        '200':
+          description: Service is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealth'
+  /system/warmup:
+    get:
+      summary: NLP warmup status snapshot.
+      operationId: getInternalWarmup
+      responses:
+        '200':
+          description: Warmup state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarmupStatus'
+        '502':
+          description: Upstream capability failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /nlp/parse:
     post:
       summary: Parse text and return final payload without SSE wrapping.
+      operationId: parseText
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParseRequest'
+      responses:
+        '200':
+          description: Parse result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseResult'
+        '400':
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /nlp/parse-mwe:
     post:
       summary: Run second-pass MWE parsing.
+      operationId: parseMweText
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParseMweRequest'
+      responses:
+        '200':
+          description: MWE parsing payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MweParseResult'
   /nlp/third-pass:
     post:
       summary: Run LLM third-pass extraction.
+      operationId: detectThirdPass
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThirdPassRequest'
+      responses:
+        '200':
+          description: Third-pass extraction payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThirdPassResult'
   /nlp/pipeline-status:
     get:
       summary: Return current NLP pipeline availability.
+      operationId: getPipelineStatus
+      responses:
+        '200':
+          description: Pipeline status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineStatus'
   /nlp/extract-sentence:
     post:
       summary: Extract example sentence for a term.
-  /lexicon/index:
-    get:
-      summary: Return normalized single-word and multi-word indexes.
+      operationId: extractSentence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractSentenceRequest'
+      responses:
+        '200':
+          description: Example sentence payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractSentenceResult'
   /lexicon/search:
     get:
       summary: Search lexicon entries.
+      operationId: searchLexicon
+      parameters:
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/CategoryFilter'
+        - $ref: '#/components/parameters/ValueFilter'
+        - $ref: '#/components/parameters/SourceFilter'
+        - $ref: '#/components/parameters/RequestFilter'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortDirection'
+        - $ref: '#/components/parameters/ReviewedByFilter'
+        - $ref: '#/components/parameters/IdMin'
+        - $ref: '#/components/parameters/IdMax'
+        - $ref: '#/components/parameters/ConfidenceMin'
+        - $ref: '#/components/parameters/ConfidenceMax'
+        - $ref: '#/components/parameters/SemanticRawQuery'
+      responses:
+        '200':
+          description: Matching lexicon rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LexiconSearchResult'
   /lexicon/sync-row:
     post:
       summary: Sync a single parse row into the lexicon.
+      operationId: syncLexiconRow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRowRequest'
+      responses:
+        '200':
+          description: Sync result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RowSyncResult'
   /lexicon/categories:
     get:
       summary: Return available lexicon categories.
+      operationId: listLexiconCategories
+      responses:
+        '200':
+          description: Available categories.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryList'
     post:
       summary: Create a lexicon category through the owner service.
+      operationId: createLexiconCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '200':
+          description: Category mutation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryMutationResult'
+        '400':
+          description: Invalid category request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /lexicon/statistics:
     get:
       summary: Return lexicon statistics slice for gateway composition.
+      operationId: getLexiconStatistics
+      responses:
+        '200':
+          description: Lexicon statistics snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LexiconStatistics'
+  /lexicon/index:
+    get:
+      summary: Return normalized single-word and multi-word indexes.
+      operationId: getLexiconIndex
+      responses:
+        '200':
+          description: Search index snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LexiconIndex'
   /lexicon/export-snapshot:
     get:
       summary: Return lexicon-owned table snapshots for downstream export generation.
+      operationId: exportLexiconSnapshot
+      responses:
+        '200':
+          description: Snapshot payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportSnapshot'
   /lexicon/entries:
     post:
       summary: Insert a single lexicon entry through the owner service.
+      operationId: addLexiconEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LexiconEntryCreateRequest'
+      responses:
+        '200':
+          description: Insert result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutationMessage'
+        '400':
+          description: Invalid entry request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /lexicon/entries/bulk:
     post:
       summary: Insert multiple lexicon entries through the owner service.
+      operationId: addLexiconEntriesBulk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LexiconBulkCreateRequest'
+      responses:
+        '200':
+          description: Bulk insert result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkInsertResult'
+        '400':
+          description: Invalid bulk insert request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /lexicon/mwe/expression:
     post:
       summary: Upsert an MWE expression through the owner service.
+      operationId: upsertMweExpression
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertMweExpressionRequest'
+      responses:
+        '200':
+          description: Expression mutation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MweExpressionMutation'
+        '400':
+          description: Invalid expression request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /lexicon/mwe/sense:
     post:
       summary: Upsert an MWE sense through the owner service.
+      operationId: upsertMweSense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertMweSenseRequest'
+      responses:
+        '200':
+          description: Sense mutation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MweSenseMutation'
+        '400':
+          description: Invalid sense request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /assignments/scan:
     post:
       summary: Synchronous assignment scan.
+      operationId: scanAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentScanRequest'
+      responses:
+        '200':
+          description: Scan result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentScanResult'
   /assignments/{assignmentId}/update:
     put:
       summary: Synchronous update and rescan.
+      operationId: updateAssignmentAndRescan
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentScanRequest'
+      responses:
+        '200':
+          description: Updated assignment scan result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentScanResult'
   /assignments/bulk-rescan:
     post:
       summary: Synchronous bulk rescan.
+      operationId: bulkRescanAssignments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRescanRequest'
+      responses:
+        '200':
+          description: Bulk rescan result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkRescanResult'
   /assignments/statistics:
     get:
       summary: Return assignments statistics slice for gateway composition.
+      operationId: getAssignmentsStatistics
+      responses:
+        '200':
+          description: Assignment statistics snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentsStatistics'
   /export/lexicon.xlsx:
     get:
       summary: Generate and stream the Excel export.
+      operationId: exportLexiconWorkbook
+      responses:
+        '200':
+          description: XLSX workbook stream.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '500':
+          description: Export failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
+  parameters:
+    AssignmentId:
+      name: assignmentId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    Status:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        default: all
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 100
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    CategoryFilter:
+      name: category_filter
+      in: query
+      required: false
+      schema:
+        type: string
+        default: ''
+    ValueFilter:
+      name: value_filter
+      in: query
+      required: false
+      schema:
+        type: string
+        default: ''
+    SourceFilter:
+      name: source_filter
+      in: query
+      required: false
+      schema:
+        type: string
+        default: all
+    RequestFilter:
+      name: request_filter
+      in: query
+      required: false
+      schema:
+        type: string
+        default: ''
+    SortBy:
+      name: sort_by
+      in: query
+      required: false
+      schema:
+        type: string
+        default: id
+    SortDirection:
+      name: sort_direction
+      in: query
+      required: false
+      schema:
+        type: string
+        default: desc
+    ReviewedByFilter:
+      name: reviewed_by_filter
+      in: query
+      required: false
+      schema:
+        type: string
+        default: ''
+    IdMin:
+      name: id_min
+      in: query
+      required: false
+      schema:
+        type:
+          - integer
+          - 'null'
+        default: null
+    IdMax:
+      name: id_max
+      in: query
+      required: false
+      schema:
+        type:
+          - integer
+          - 'null'
+        default: null
+    ConfidenceMin:
+      name: confidence_min
+      in: query
+      required: false
+      schema:
+        type:
+          - number
+          - 'null'
+        default: null
+    ConfidenceMax:
+      name: confidence_max
+      in: query
+      required: false
+      schema:
+        type:
+          - number
+          - 'null'
+        default: null
+    SemanticRawQuery:
+      name: semantic_raw_query
+      in: query
+      required: false
+      schema:
+        type:
+          - string
+          - 'null'
+        default: null
   schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+    SystemHealth:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          const: ok
+    WarmupStatus:
+      type: object
+      required:
+        - running
+        - ready
+        - failed
+        - error_message
+        - elapsed_sec
+      properties:
+        running:
+          type: boolean
+        ready:
+          type: boolean
+        failed:
+          type: boolean
+        error_message:
+          type: string
+        elapsed_sec:
+          type:
+            - number
+            - 'null'
     ParseRequest:
       type: object
-      required: [text]
+      required:
+        - text
       properties:
         text:
           type: string
         sync:
           type: boolean
+          default: false
         third_pass_enabled:
           type: boolean
+          default: false
         think_mode:
           type: boolean
-    RowSyncRequest:
+          default: false
+    ParseRow:
       type: object
-      required: [token, normalized, lemma, categories]
+      required:
+        - index
+        - token
+        - normalized
+        - lemma
+        - categories
+        - source
+        - matched_form
+        - confidence
+        - known
+      properties:
+        index:
+          type: integer
+        token:
+          type: string
+        normalized:
+          type: string
+        lemma:
+          type: string
+        categories:
+          type: string
+        source:
+          type: string
+        matched_form:
+          type: string
+        confidence:
+          type: string
+        known:
+          type: string
+    ParseResult:
+      type: object
+      required:
+        - rows
+        - summary
+        - status_message
+        - error_message
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParseRow'
+        summary:
+          type: object
+          additionalProperties: true
+        status_message:
+          type: string
+        error_message:
+          type: string
+    ParseMweRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+        request_id:
+          type:
+            - string
+            - 'null'
+          default: null
+        top_n:
+          type: integer
+          minimum: 1
+          default: 3
+        enabled:
+          type:
+            - boolean
+            - 'null'
+          default: null
+    MweOccurrence:
+      type: object
+      properties:
+        canonical_form:
+          type: string
+        matched_text:
+          type: string
+        expression_type:
+          type: string
+        score:
+          type: number
+      additionalProperties: true
+    MweParseResult:
+      type: object
+      properties:
+        status:
+          type: string
+        pipeline_status:
+          type: string
+        occurrences:
+          type: array
+          items:
+            $ref: '#/components/schemas/MweOccurrence'
+        pipeline:
+          type: object
+          additionalProperties: true
+        stage_statuses:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
+    ThirdPassRequest:
+      type: object
+      required:
+        - text
+        - request_id
+      properties:
+        text:
+          type: string
+        request_id:
+          type: string
+        think_mode:
+          type:
+            - boolean
+            - 'null'
+          default: null
+        enabled:
+          type:
+            - boolean
+            - 'null'
+          default: null
+        timeout_ms:
+          type:
+            - integer
+            - 'null'
+          default: null
+    ThirdPassResult:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        status:
+          type: string
+        reason:
+          type: string
+        occurrences:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        candidates_count:
+          type: integer
+        resolved_count:
+          type: integer
+        uncertain_count:
+          type: integer
+        stage_statuses:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
+    PipelineStatus:
+      type: object
+      properties:
+        ready:
+          type: boolean
+        model:
+          type: string
+        status:
+          type: string
+      additionalProperties: true
+    ExtractSentenceRequest:
+      type: object
+      required:
+        - text
+        - term
+      properties:
+        text:
+          type: string
+        term:
+          type: string
+    ExtractSentenceResult:
+      type: object
+      required:
+        - sentence
+      properties:
+        sentence:
+          type: string
+    LexiconEntryDTO:
+      type: object
+      required:
+        - id
+        - category
+        - value
+        - normalized
+        - source
+        - confidence
+        - first_seen_at
+        - request_id
+        - status
+        - created_at
+        - reviewed_at
+        - reviewed_by
+        - review_note
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        value:
+          type: string
+        normalized:
+          type: string
+        source:
+          type: string
+        confidence:
+          type: number
+        first_seen_at:
+          type:
+            - string
+            - 'null'
+        request_id:
+          type:
+            - string
+            - 'null'
+        status:
+          type: string
+        created_at:
+          type:
+            - string
+            - 'null'
+        reviewed_at:
+          type:
+            - string
+            - 'null'
+        reviewed_by:
+          type:
+            - string
+            - 'null'
+        review_note:
+          type:
+            - string
+            - 'null'
+    LexiconSearchResult:
+      type: object
+      required:
+        - rows
+        - total_rows
+        - filtered_rows
+        - counts_by_status
+        - available_categories
+        - message
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/LexiconEntryDTO'
+        total_rows:
+          type: integer
+        filtered_rows:
+          type: integer
+        counts_by_status:
+          type: object
+          additionalProperties:
+            type: number
+        available_categories:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+    SyncRowRequest:
+      type: object
+      required:
+        - token
+        - normalized
+        - lemma
+        - categories
       properties:
         token:
           type: string
@@ -93,38 +864,428 @@ components:
           type: string
         categories:
           type: string
+    RowSyncResult:
+      type: object
+      required:
+        - status
+        - value
+        - category
+        - request_id
+        - message
+        - category_fallback_used
+      properties:
+        status:
+          type: string
+        value:
+          type: string
+        category:
+          type: string
+        request_id:
+          type: string
+        message:
+          type: string
+        category_fallback_used:
+          type: boolean
+    CategoryRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+    CategoryList:
+      type: object
+      required:
+        - categories
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+    CategoryMutationResult:
+      type: object
+      required:
+        - categories
+        - message
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+    MutationMessage:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+    LexiconEntryCreateRequest:
+      type: object
+      required:
+        - category
+        - value
+      properties:
+        category:
+          type: string
+        value:
+          type: string
+        source:
+          type: string
+          default: manual
+        confidence:
+          type: number
+          default: 1
+    LexiconBulkEntryCreateItem:
+      type: object
+      required:
+        - category
+        - value
+      properties:
+        category:
+          type: string
+        value:
+          type: string
+    LexiconBulkCreateRequest:
+      type: object
+      required:
+        - entries
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LexiconBulkEntryCreateItem'
+        source:
+          type: string
+          default: manual
+        confidence:
+          type: number
+          default: 1
+        request_id:
+          type:
+            - string
+            - 'null'
+          default: null
+    BulkInsertResult:
+      type: object
+      required:
+        - inserted_count
+        - message
+      properties:
+        inserted_count:
+          type: integer
+        message:
+          type: string
+    CategoryCount:
+      type: object
+      required:
+        - name
+        - count
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
     LexiconStatistics:
       type: object
+      required:
+        - total_entries
+        - counts_by_status
+        - counts_by_source
+        - categories
       properties:
         total_entries:
           type: integer
         counts_by_status:
           type: object
           additionalProperties:
-            type: integer
+            type: number
         counts_by_source:
           type: object
           additionalProperties:
-            type: integer
+            type: number
         categories:
           type: array
           items:
-            type: object
-            properties:
-              name:
-                type: string
-              count:
-                type: integer
+            $ref: '#/components/schemas/CategoryCount'
+    LexiconIndex:
+      type: object
+      required:
+        - single_word_index
+        - multi_word_index
+        - total_rows
+        - lexicon_version
+      properties:
+        single_word_index:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        multi_word_index:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        total_rows:
+          type: integer
+        lexicon_version:
+          type: integer
+    ExportSnapshotTable:
+      type: object
+      required:
+        - name
+        - columns
+        - rows
+      properties:
+        name:
+          type: string
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: array
+            items: {}
+    ExportSnapshot:
+      type: object
+      required:
+        - tables
+      properties:
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportSnapshotTable'
+    UpsertMweExpressionRequest:
+      type: object
+      required:
+        - canonical_form
+        - expression_type
+      properties:
+        canonical_form:
+          type: string
+        expression_type:
+          type: string
+        is_separable:
+          type: boolean
+          default: false
+        max_gap_tokens:
+          type: integer
+          default: 4
+        base_lemma:
+          type:
+            - string
+            - 'null'
+          default: null
+        particle:
+          type:
+            - string
+            - 'null'
+          default: null
+    MweExpressionMutation:
+      type: object
+      required:
+        - expression_id
+      properties:
+        expression_id:
+          type: integer
+    UpsertMweSenseRequest:
+      type: object
+      required:
+        - expression_id
+        - sense_key
+        - gloss
+        - usage_label
+      properties:
+        expression_id:
+          type: integer
+        sense_key:
+          type: string
+        gloss:
+          type: string
+        usage_label:
+          type: string
+        example:
+          type: string
+          default: ''
+        priority:
+          type: integer
+          default: 0
+    MweSenseMutation:
+      type: object
+      required:
+        - sense_id
+      properties:
+        sense_id:
+          type: integer
+    AssignmentScanRequest:
+      type: object
+      required:
+        - content_completed
+      properties:
+        title:
+          type: string
+          default: ''
+        content_original:
+          type: string
+          default: ''
+        content_completed:
+          type: string
+    AssignmentMatch:
+      type: object
+      required:
+        - entry_id
+        - term
+        - category
+        - source
+        - occurrences
+      properties:
+        entry_id:
+          type: integer
+        term:
+          type: string
+        category:
+          type: string
+        source:
+          type: string
+        occurrences:
+          type: integer
+    AssignmentMissingWord:
+      type: object
+      required:
+        - term
+        - occurrences
+        - example_usage
+      properties:
+        term:
+          type: string
+        occurrences:
+          type: integer
+        example_usage:
+          type: string
+    AssignmentDiffChunk:
+      type: object
+      required:
+        - operation
+        - original_text
+        - completed_text
+      properties:
+        operation:
+          type: string
+        original_text:
+          type: string
+        completed_text:
+          type: string
+    AssignmentScanResult:
+      type: object
+      required:
+        - assignment_id
+        - title
+        - content_original
+        - content_completed
+        - word_count
+        - known_token_count
+        - unknown_token_count
+        - lexicon_coverage_percent
+        - assignment_status
+        - message
+        - duration_ms
+        - matches
+        - missing_words
+        - diff_chunks
+      properties:
+        assignment_id:
+          type:
+            - integer
+            - 'null'
+        title:
+          type: string
+        content_original:
+          type: string
+        content_completed:
+          type: string
+        word_count:
+          type: integer
+        known_token_count:
+          type: integer
+        unknown_token_count:
+          type: integer
+        lexicon_coverage_percent:
+          type: number
+        assignment_status:
+          type: string
+        message:
+          type: string
+        duration_ms:
+          type: number
+        matches:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignmentMatch'
+        missing_words:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignmentMissingWord'
+        diff_chunks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssignmentDiffChunk'
+    BulkRescanRequest:
+      type: object
+      properties:
+        assignment_ids:
+          type: array
+          items:
+            type: integer
+      required:
+        - assignment_ids
+    BulkRescanResult:
+      type: object
+      required:
+        - success_count
+        - failed_count
+        - message
+      properties:
+        success_count:
+          type: integer
+        failed_count:
+          type: integer
+        message:
+          type: string
+    AssignmentCoverageStats:
+      type: object
+      required:
+        - title
+        - coverage_pct
+        - created_at
+      properties:
+        title:
+          type: string
+        coverage_pct:
+          type: number
+        created_at:
+          type: string
     AssignmentsStatistics:
       type: object
+      required:
+        - assignment_coverage
+        - total_assignments
+        - average_assignment_coverage
+        - low_coverage_count
       properties:
         assignment_coverage:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/AssignmentCoverageStats'
         total_assignments:
           type: integer
         average_assignment_coverage:
-          type: number
+          type:
+            - number
+            - 'null'
         low_coverage_count:
           type: integer
