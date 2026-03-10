@@ -65,6 +65,13 @@ export function useSSEJob<T>(
           } else if (event.type === 'done') {
             setState((s) => (s.status === 'streaming' ? { ...s, status: 'done' } : s))
           }
+          // Закрываем EventSource при получении терминального события,
+          // чтобы предотвратить автоматическое переподключение браузера
+          // после закрытия SSE-соединения сервером.
+          if (event.type === 'done' || event.type === 'error' || event.type === 'result') {
+            cleanupRef.current?.()
+            cleanupRef.current = null
+          }
         },
       )
       cleanupRef.current = cleanup

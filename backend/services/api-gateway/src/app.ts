@@ -187,7 +187,7 @@ export function buildGatewayApp() {
     app.route({
       method: 'GET',
       url: '/',
-      exposeHeadRoute: false,
+      exposeHeadRoute: true,
       handler: async (_, reply) => {
         reply.type('text/html; charset=utf-8').send(fs.readFileSync(indexHtmlPath, 'utf8'))
       },

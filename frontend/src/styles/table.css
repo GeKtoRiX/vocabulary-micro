@@ -3,7 +3,7 @@
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 table {
@@ -16,11 +16,12 @@ thead {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: rgba(245, 241, 232, 0.98);
+  background: rgba(23, 26, 31, 0.98);
+  backdrop-filter: blur(8px);
 }
 
 th {
-  padding: 6px 8px;
+  padding: 10px 10px;
   text-align: left;
   color: var(--text-secondary);
   font-weight: 600;
@@ -38,8 +39,8 @@ th.sort-asc::after { content: ' ↑'; }
 th.sort-desc::after { content: ' ↓'; }
 
 td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(217, 207, 190, 0.7);
+  padding: 11px 10px;
+  border-bottom: 1px solid rgba(220, 208, 187, 0.08);
   color: var(--text-primary);
   vertical-align: top;
   max-width: 260px;
@@ -53,14 +54,14 @@ tr:hover td {
 }
 
 tr.selected td {
-  background: rgba(43, 108, 176, 0.1);
+  background: rgba(130, 169, 214, 0.1);
 }
 
 .pagination {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 4px;
+  padding: 10px 4px 2px;
   font-size: 12px;
   color: var(--text-muted);
   flex-shrink: 0;

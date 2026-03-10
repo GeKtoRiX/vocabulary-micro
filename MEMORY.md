@@ -39,6 +39,14 @@
 - Проверка инструментов: `python3 -m pytest -q tests/governance/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-10` — `start.sh` переведён на managed lifecycle: перед запуском он проверяет обязательные команды, занятость портов, локальные Node runtime-артефакты и readiness всех HTTP-сервисов, а при `Ctrl+C` завершает каждый сервис по process group и останавливает локально поднятый compose `postgres`.
+  Зачем: сделать локальный bootstrap предсказуемым одной командой, исключить “полустартовавший” стек и гарантировать освобождение портов без ручного `pkill`/`docker stop`.
+- `2026-03-10` — Postgres compose/runtime persistence переведён с Docker named volume на явный host bind mount `POSTGRES_DATA_DIR` (по умолчанию `./docker-data/postgres`), а сам кластер перенесён в `PGDATA` подпапку внутри mount.
+  Зачем: сделать хранение БД прозрачным для локальной разработки, чтобы данные физически лежали в папке проекта на диске хоста и переживали пересборку/обновление контейнеров без скрытого Docker-managed volume, не ломаясь из-за служебных файлов вроде `.gitignore` в корне bind mount.
+- `2026-03-10` — Compose/runtime bootstrap переведён на prebuilt local images: добавлены `docker/Dockerfile.python-runtime`, `docker/Dockerfile.node-runtime` и одноразовый prepare-step `scripts/prepare_docker_runtime.sh`, после которого startup больше не делает `pip install`, `npm install` или image pull.
+  Зачем: отделить тяжёлые сетевые скачивания и сборку от startup-path, чтобы `docker compose up` и `start.sh --postgres` использовали только уже подготовленные локальные образы и поднимались без сетевой активности.
+- `2026-03-10` — `start.sh --postgres` переведён в self-contained bootstrap: при локальном DSN (`127.0.0.1` / `localhost`) он сам поднимает `docker compose` сервис `postgres` и ждёт `healthy` перед стартом application-слоя, но если Postgres уже доступен по заданному DSN, compose-autostart пропускается.
+  Зачем: убрать ручной двухшаговый запуск “сначала база, потом start.sh”, сделать production-like Postgres path воспроизводимым одной командой и одновременно не ломать сценарии с уже поднятым внешним/тестовым Postgres на локальном хосте.
 - `2026-03-10` — Канонические shared-layer каталоги Python перенесены в `backend/python_services/{core,infrastructure}`, а root `core/` и `infrastructure/` оставлены как compatibility shim packages.
   Зачем: закончить структурное разведение backend-кода, собрать весь Python runtime под `backend/python_services/` и при этом не ломать существующие импорты `core.*` / `infrastructure.*`, тесты и runtime contracts.
 - `2026-03-10` — Agent/tooling implementation сгруппирован в `agents/`, а тестовый контур разложен на `tests/backend/` и `tests/governance/`; root `tools.py` и `skills/` оставлены как compatibility entrypoints.

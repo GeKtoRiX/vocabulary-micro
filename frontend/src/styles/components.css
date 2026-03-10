@@ -1,14 +1,16 @@
 /* KPI Card */
 .kpi-card {
-  background: rgba(255, 255, 255, 0.74);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: 16px 16px 15px;
   min-width: 90px;
   text-align: left;
+  min-height: 98px;
 }
 .kpi-card .kpi-value {
-  font-size: 24px;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.1;
@@ -16,33 +18,34 @@
 .kpi-card .kpi-label {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
 }
-.kpi-card.success { border-color: var(--accent-success); }
-.kpi-card.danger { border-color: var(--accent-danger); }
-.kpi-card.warning { border-color: var(--accent-warning); }
-.kpi-card.info { border-color: var(--accent-info); }
+.kpi-card.success { border-color: rgba(125, 192, 152, 0.28); }
+.kpi-card.danger { border-color: rgba(223, 141, 120, 0.28); }
+.kpi-card.warning { border-color: rgba(216, 175, 105, 0.28); }
+.kpi-card.info { border-color: rgba(130, 169, 214, 0.28); }
 
 /* Modal overlay */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(45, 36, 24, 0.4);
+  background: rgba(6, 8, 10, 0.72);
   display: none;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 20px;
 }
 .modal-overlay.open {
   display: flex;
 }
 .modal-box {
-  background: var(--bg-card);
+  background: var(--bg-card-strong);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 22px;
   min-width: 340px;
   max-width: 560px;
   width: 100%;
@@ -51,7 +54,8 @@
   overflow-y: auto;
 }
 .modal-title {
-  font-size: 15px;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 24px;
   font-weight: 600;
   margin-bottom: 14px;
   color: var(--text-primary);
@@ -88,19 +92,19 @@
   z-index: 2000;
 }
 .toast {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(19, 22, 27, 0.96);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 8px 14px;
+  padding: 10px 14px;
   font-size: 12px;
   color: var(--text-primary);
   box-shadow: var(--shadow);
   max-width: 320px;
   animation: toast-in 0.2s ease;
 }
-.toast.success { border-color: var(--accent-success); }
-.toast.error { border-color: var(--accent-danger); }
-.toast.warning { border-color: var(--accent-warning); }
+.toast.success { border-color: rgba(125, 192, 152, 0.28); }
+.toast.error { border-color: rgba(223, 141, 120, 0.3); }
+.toast.warning { border-color: rgba(216, 175, 105, 0.3); }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -109,7 +113,7 @@
 /* Context menu */
 .context-menu {
   position: fixed;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(23, 27, 32, 0.98);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -130,6 +134,7 @@
 }
 .context-menu-item:hover {
   background: var(--bg-hover);
+  transform: none;
 }
 .context-menu-item.danger { color: var(--accent-danger); }
 .context-menu-separator {
@@ -140,58 +145,59 @@
 /* Status badge */
 .badge {
   display: inline-block;
-  padding: 2px 6px;
-  border-radius: 9px;
+  padding: 4px 8px;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
-.badge-approved { background: rgba(0,188,140,0.2); color: var(--accent-success); }
-.badge-pending { background: rgba(243,156,18,0.2); color: var(--accent-warning); }
-.badge-rejected { background: rgba(231,76,60,0.2); color: var(--accent-danger); }
-.badge-default { background: rgba(255,255,255,0.1); color: var(--text-secondary); }
+.badge-approved { background: rgba(125, 192, 152, 0.14); color: var(--accent-success); border: 1px solid rgba(125, 192, 152, 0.16); }
+.badge-pending { background: rgba(216, 175, 105, 0.14); color: var(--accent-warning); border: 1px solid rgba(216, 175, 105, 0.16); }
+.badge-rejected { background: rgba(223, 141, 120, 0.14); color: var(--accent-danger); border: 1px solid rgba(223, 141, 120, 0.16); }
+.badge-default { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 7px 11px;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   font-weight: 700;
   border: 1px solid transparent;
 }
-.status-badge.success { background: rgba(47, 133, 90, 0.14); border-color: rgba(47, 133, 90, 0.22); color: var(--accent-success); }
-.status-badge.warning { background: rgba(196, 138, 29, 0.14); border-color: rgba(196, 138, 29, 0.22); color: var(--accent-warning); }
-.status-badge.danger { background: rgba(192, 86, 63, 0.14); border-color: rgba(192, 86, 63, 0.22); color: var(--accent-danger); }
-.status-badge.info { background: rgba(43, 108, 176, 0.12); border-color: rgba(43, 108, 176, 0.2); color: var(--accent-info); }
+.status-badge.success { background: rgba(125, 192, 152, 0.12); border-color: rgba(125, 192, 152, 0.2); color: var(--accent-success); }
+.status-badge.warning { background: rgba(216, 175, 105, 0.12); border-color: rgba(216, 175, 105, 0.2); color: var(--accent-warning); }
+.status-badge.danger { background: rgba(223, 141, 120, 0.12); border-color: rgba(223, 141, 120, 0.2); color: var(--accent-danger); }
+.status-badge.info { background: rgba(130, 169, 214, 0.12); border-color: rgba(130, 169, 214, 0.2); color: var(--accent-info); }
 
 .section-message {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px;
+  padding: 18px;
   border-radius: var(--radius);
   border: 1px dashed var(--border-light);
-  background: rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .section-message.info {
-  border-color: rgba(43, 108, 176, 0.28);
+  border-color: rgba(130, 169, 214, 0.28);
 }
 
 .section-message.warning {
-  border-color: rgba(196, 138, 29, 0.3);
+  border-color: rgba(216, 175, 105, 0.3);
 }
 
 .section-message.danger {
-  border-color: rgba(192, 86, 63, 0.35);
+  border-color: rgba(223, 141, 120, 0.35);
 }
 
 .section-message-title {
   font-weight: 700;
+  font-size: 16px;
 }
 
 .section-message-description {
@@ -209,7 +215,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-primary);
+  background: rgba(255, 255, 255, 0.03);
   border-radius: var(--radius);
   padding: 6px 10px;
 }

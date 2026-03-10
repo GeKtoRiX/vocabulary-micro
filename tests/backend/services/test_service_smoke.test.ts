@@ -76,6 +76,9 @@ describe('service smoke', () => {
       const result = await app.inject({ method: 'GET', url: '/' })
       expect(result.statusCode).toBe(200)
       expect(result.body).toContain('<div id="root"></div>')
+
+      const head = await app.inject({ method: 'HEAD', url: '/' })
+      expect(head.statusCode).toBe(200)
     } finally {
       await app.close()
     }

@@ -10,6 +10,9 @@ from .text_utils import NON_LATIN_SCRIPT_PATTERN, TOKEN_PATTERN
 try:
     import spacy
 
+    # Активировать GPU (ROCm/CUDA) для spaCy трансформерных моделей.
+    # prefer_gpu() возвращает True если GPU найден, иначе молча остаётся на CPU.
+    spacy.prefer_gpu()
     SPACY_IMPORT_ERROR = None
 except Exception as exc:
     spacy = None

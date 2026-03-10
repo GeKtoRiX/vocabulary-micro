@@ -1,10 +1,12 @@
 services:
   postgres:
     image: postgres:16
+    pull_policy: never
     environment:
       POSTGRES_DB: vocabulary
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d vocabulary"]
       interval: 5s
@@ -13,15 +15,13 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_DIR:-./docker-data/postgres}:/var/lib/postgresql/data
 
   nlp-service:
-    image: python:3.12-slim
+    image: vocabulary-python-runtime:${PYTHON_RUNTIME_IMAGE_TAG:-local}
+    pull_policy: never
     working_dir: /app
-    volumes:
-      - ./:/app
-    command: >
-      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python -m backend.python_services.nlp_service.main"
+    command: ["python", "-m", "backend.python_services.nlp_service.main"]
     environment:
       NLP_SERVICE_HOST: 0.0.0.0
       NLP_SERVICE_PORT: 8767
@@ -33,12 +33,10 @@ services:
       - "${NLP_SERVICE_HOST_PORT:-8767}:8767"
 
   export-service:
-    image: python:3.12-slim
+    image: vocabulary-python-runtime:${PYTHON_RUNTIME_IMAGE_TAG:-local}
+    pull_policy: never
     working_dir: /app
-    volumes:
-      - ./:/app
-    command: >
-      sh -lc "pip install -r ${PYTHON_RUNTIME_REQUIREMENTS_FILE:-requirements.txt} && python -m backend.python_services.export_service.main"
+    command: ["python", "-m", "backend.python_services.export_service.main"]
     environment:
       EXPORT_SERVICE_HOST: 0.0.0.0
       EXPORT_SERVICE_PORT: 8768
@@ -50,12 +48,10 @@ services:
       - "${EXPORT_SERVICE_HOST_PORT:-8768}:8768"
 
   lexicon-service:
-    image: node:22
+    image: vocabulary-node-runtime:${NODE_RUNTIME_IMAGE_TAG:-local}
+    pull_policy: never
     working_dir: /app/backend/services
-    volumes:
-      - ./:/app
-    command: >
-      sh -lc "/app/scripts/ensure_services_node_modules.sh && npm --workspace @vocabulary/lexicon-service run dev"
+    command: ["npm", "--workspace", "@vocabulary/lexicon-service", "run", "dev"]
     environment:
       LEXICON_SERVICE_HOST: 0.0.0.0
       LEXICON_SERVICE_PORT: 4011
@@ -73,12 +69,10 @@ services:
       - "${LEXICON_SERVICE_HOST_PORT:-4011}:4011"
 
   assignments-service:
-    image: node:22
+    image: vocabulary-node-runtime:${NODE_RUNTIME_IMAGE_TAG:-local}
+    pull_policy: never
     working_dir: /app/backend/services
-    volumes:
-      - ./:/app
-    command: >
-      sh -lc "/app/scripts/ensure_services_node_modules.sh && npm --workspace @vocabulary/assignments-service run dev"
+    command: ["npm", "--workspace", "@vocabulary/assignments-service", "run", "dev"]
     environment:
       ASSIGNMENTS_SERVICE_HOST: 0.0.0.0
       ASSIGNMENTS_SERVICE_PORT: 4012
@@ -100,12 +94,10 @@ services:
       - "${ASSIGNMENTS_SERVICE_HOST_PORT:-4012}:4012"
 
   api-gateway:
-    image: node:22
+    image: vocabulary-node-runtime:${NODE_RUNTIME_IMAGE_TAG:-local}
+    pull_policy: never
     working_dir: /app/backend/services
-    volumes:
-      - ./:/app
-    command: >
-      sh -lc "/app/scripts/ensure_services_node_modules.sh && npm --workspace @vocabulary/api-gateway run dev"
+    command: ["npm", "--workspace", "@vocabulary/api-gateway", "run", "dev"]
     environment:
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 8765
@@ -130,6 +122,3 @@ services:
       - assignments-service
     ports:
       - "${GATEWAY_HOST_PORT:-8765}:8765"
-
-volumes:
-  postgres-data:

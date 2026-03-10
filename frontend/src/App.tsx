@@ -54,15 +54,53 @@ function AppInner() {
       <header className="app-header">
         <div className="app-header-main">
           <div className="app-eyebrow">Vocabulary Operations Console</div>
-          <h1>Operational vocabulary workspace</h1>
-          <p>{activeTabMeta.description}</p>
+          <div className="app-title-row">
+            <div>
+              <h1>Operational vocabulary workspace</h1>
+              <p>{activeTabMeta.description}</p>
+            </div>
+            <div className="app-header-side">
+              <StatusBadge
+                label={warmupLabel}
+                tone={!warmup ? 'info' : warmup.ready ? 'success' : warmup.failed ? 'danger' : 'warning'}
+              />
+              <div className="header-inline-note">
+                {warmup?.failed ? warmup.error_message || 'Warmup failed.' : activeTabMeta.label}
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="app-header-side">
-          <StatusBadge
-            label={warmupLabel}
-            tone={!warmup ? 'info' : warmup.ready ? 'success' : warmup.failed ? 'danger' : 'warning'}
-          />
-          {warmup?.failed ? <div className="header-inline-note">{warmup.error_message || 'Warmup failed.'}</div> : null}
+
+        <div className="hero-grid">
+          <section className="hero-card hero-card-primary">
+            <div className="hero-card-label">Workspace Focus</div>
+            <div className="hero-card-value">{activeTabMeta.label}</div>
+            <div className="hero-card-copy">
+              Review current signals, work the active queue, and keep vocabulary coverage moving without switching context.
+            </div>
+          </section>
+
+          <section className="hero-card">
+            <div className="hero-card-label">Operational Signal</div>
+            <div className="hero-stat-grid">
+              <div>
+                <span>Coverage</span>
+                <strong>{statistics ? formatPercent(statistics.overview.average_assignment_coverage) : '—'}</strong>
+              </div>
+              <div>
+                <span>Pending review</span>
+                <strong>{statistics?.overview.pending_review_count ?? '—'}</strong>
+              </div>
+              <div>
+                <span>Assignments</span>
+                <strong>{statistics?.overview.total_assignments ?? '—'}</strong>
+              </div>
+              <div>
+                <span>Top category</span>
+                <strong>{statistics?.overview.top_category.name || '—'}</strong>
+              </div>
+            </div>
+          </section>
         </div>
       </header>
 
@@ -84,7 +122,7 @@ function AppInner() {
             className={`tab-btn${activeTab === tab.id ? ' active' : ''}`}
             onClick={() => setActiveTab(tab.id)}
           >
-            <span>{tab.label}</span>
+            <span className="tab-btn-title">{tab.label}</span>
             <small>{navMeta[tab.id]}</small>
           </button>
         ))}

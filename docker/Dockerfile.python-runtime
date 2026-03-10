@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+ARG PYTHON_RUNTIME_REQUIREMENTS_FILE=requirements.compose.txt
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    # Хранить NLTK data в системном каталоге, доступном всем пользователям
+    NLTK_DATA=/usr/share/nltk_data
+
+WORKDIR /app
+
+COPY requirements.txt requirements.compose.txt /app/
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r "/app/${PYTHON_RUNTIME_REQUIREMENTS_FILE}"
+
+# Загрузить и распаковать NLTK данные (wordnet, punkt, omw-1.4, ...)
+COPY docker/download_nltk_data.py /tmp/download_nltk_data.py
+RUN python /tmp/download_nltk_data.py && rm /tmp/download_nltk_data.py
+
+COPY backend /app/backend
+COPY core /app/core
+COPY infrastructure /app/infrastructure

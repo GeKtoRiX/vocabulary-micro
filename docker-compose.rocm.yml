@@ -1,0 +1,41 @@
+# Compose override для AMD ROCm GPU (RX 7600 XT и другие RDNA 3).
+#
+# Применение:
+#   docker compose -f docker-compose.yml -f docker-compose.rocm.yml up
+#
+# Требования:
+#   1. ROCm 6.x установлен на хосте.
+#   2. Образ собран: docker build -f docker/Dockerfile.python-runtime-rocm \
+#          -t vocabulary-python-runtime-rocm:local .
+#   3. Пользователь в группах render и video:
+#          sudo usermod -aG render,video $USER && newgrp render
+#   4. Для RX 7600 XT HSA_OVERRIDE_GFX_VERSION задаётся в environment ниже.
+
+services:
+  nlp-service:
+    # Использовать образ с ROCm PyTorch вместо базового CPU-образа
+    image: vocabulary-python-runtime-rocm:${PYTHON_RUNTIME_IMAGE_TAG:-local}
+
+    # Пробросить устройства ROCm с хоста в контейнер
+    devices:
+      - /dev/kfd      # HSA Kernel Fusion Driver — требуется для HIP/ROCm
+      - /dev/dri      # DRI устройства GPU (renderDxxx, cardx)
+
+    # Группы для доступа к GPU-устройствам (зависит от дистрибутива)
+    group_add:
+      - video
+      - render
+
+    environment:
+      NLP_SERVICE_HOST: 0.0.0.0
+      NLP_SERVICE_PORT: 8767
+      LEXICON_SERVICE_HOST: lexicon-service
+      LEXICON_SERVICE_PORT: 4011
+      # RX 7600 XT = gfx1102; override позволяет ROCm использовать карту
+      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
+      # Включить GPU для SentenceTransformer и spaCy
+      BERT_DEVICE: cuda
+      BERT_MODEL_NAME: all-MiniLM-L6-v2
+      BERT_LOCAL_FILES_ONLY: "false"
+      BERT_TIMEOUT_MS: "12000"
+      SPACY_TRF_MODEL_NAME: en_core_web_trf

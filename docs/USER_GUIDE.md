@@ -37,7 +37,8 @@ Current migration ownership:
 
 ```bash
 # Full migration slice
-./start.sh --postgres          # recommended production-like path: gateway + services on Postgres
+bash ./scripts/prepare_docker_runtime.sh  # one-time pull/build step for preloaded local images
+./start.sh --postgres          # recommended production-like path: gateway + services on Postgres, local postgres auto-bootstrapped
 ./start.sh                     # local SQLite fallback path
 ./start.sh --build             # build frontend, then start gateway + services
 ./start.sh --dev               # Vite dev server + gateway + services
@@ -65,13 +66,23 @@ cp .env.postgres.example .env.postgres
 ./start.sh --postgres
 ```
 
-Recommended default for migration verification: prefer the Postgres-first runtime and use plain `./start.sh`
-only when you explicitly want the SQLite dev fallback. `./start.sh` without `--postgres`
-does not switch owner services to Postgres by itself.
+Recommended default for migration verification: run `./scripts/prepare_docker_runtime.sh` once,
+then prefer the Postgres-first runtime and use plain `./start.sh` only when you explicitly want
+the SQLite dev fallback. `./start.sh --postgres` ensures local docker compose `postgres` is up
+when the DSN targets `127.0.0.1` / `localhost`, but no image/dependency downloads are expected
+at startup because the prepare step preloads them. Set `START_POSTGRES_VIA_COMPOSE=0` only if you
+intentionally use an external Postgres.
+
+The compose/runtime layout now follows the standard split:
+- one container for the application services
+- one separate Postgres container
+- host-persisted database files via `POSTGRES_DATA_DIR` (default `./docker-data/postgres`)
+- actual Postgres cluster in `PGDATA` subdirectory inside that mount
 
 Compose Postgres runtime:
 
 ```bash
+bash ./scripts/prepare_docker_runtime.sh
 docker compose up
 docker compose --env-file .env.compose.postgres up
 ```

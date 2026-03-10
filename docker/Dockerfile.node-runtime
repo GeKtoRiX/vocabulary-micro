@@ -1,0 +1,18 @@
+FROM node:22
+
+WORKDIR /app
+
+COPY backend/services/package.json backend/services/package-lock.json backend/services/tsconfig.base.json /app/backend/services/
+COPY backend/services/api-gateway/package.json /app/backend/services/api-gateway/package.json
+COPY backend/services/lexicon-service/package.json /app/backend/services/lexicon-service/package.json
+COPY backend/services/assignments-service/package.json /app/backend/services/assignments-service/package.json
+COPY backend/services/shared/package.json /app/backend/services/shared/package.json
+RUN cd /app/backend/services && npm ci
+
+COPY frontend/package.json frontend/package-lock.json /app/frontend/
+RUN cd /app/frontend && npm ci
+
+COPY backend /app/backend
+COPY frontend /app/frontend
+
+RUN cd /app/frontend && npm run build

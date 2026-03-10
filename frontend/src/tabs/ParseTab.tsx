@@ -99,42 +99,58 @@ export function ParseTab() {
   return (
     <div className="tab-panel active parse-tab">
       <div className="two-col parse-grid">
-        <section className="panel">
-          <div className="panel-title">Text Input</div>
-          <div className="toolbar">
+        <section className="panel panel-accent">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Primary Workspace</div>
+              <div className="panel-heading">Text Input</div>
+            </div>
+            <StatusBadge label={isWorking ? 'running' : result ? 'ready' : 'idle'} />
+          </div>
+          <p className="panel-copy">
+            Paste source text, choose validation depth, and run parse without leaving the review surface.
+          </p>
+          <div className="control-strip">
             <button onClick={handleParse} disabled={isWorking || !text.trim()}>
               {isWorking ? <><span className="spinner" style={{ marginRight: 6 }} />Parsing...</> : sync ? 'Parse & Sync' : 'Parse'}
             </button>
-            <label className="inline-toggle">
-              <input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} />
-              Sync
-            </label>
-            <label className="inline-toggle">
-              <input type="checkbox" checked={thirdPass} onChange={(e) => setThirdPass(e.target.checked)} />
-              LLM Pass
-            </label>
-            <label className="inline-toggle">
-              <input type="checkbox" checked={thinkMode} onChange={(e) => setThinkMode(e.target.checked)} disabled={!thirdPass} />
-              Think Mode
-            </label>
+            <div className="toggle-cluster" role="group" aria-label="Parse options">
+              <label className="inline-toggle">
+                <input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} />
+                <span>Sync</span>
+              </label>
+              <label className="inline-toggle">
+                <input type="checkbox" checked={thirdPass} onChange={(e) => setThirdPass(e.target.checked)} />
+                <span>LLM Pass</span>
+              </label>
+              <label className="inline-toggle">
+                <input type="checkbox" checked={thinkMode} onChange={(e) => setThinkMode(e.target.checked)} disabled={!thirdPass} />
+                <span>Think Mode</span>
+              </label>
+            </div>
           </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Paste text here to review token recognition, unknown vocabulary, and sync candidates."
-            style={{ minHeight: 180, resize: 'vertical', width: '100%' }}
+            className="workspace-textarea"
           />
-          <div className="toolbar">
-            <StatusBadge label={isWorking ? 'running' : result ? 'ready' : 'idle'} />
+          <div className="status-strip">
             <span className={`status-bar ${error ? 'error' : ''}`}>{statusText || 'Run parse to inspect tokens and sync candidates.'}</span>
+            <span className="header-inline-note">{text.trim() ? `${text.trim().split(/\s+/).length} words queued` : 'No text queued'}</span>
           </div>
         </section>
 
-        <section className="panel">
-          <div className="panel-title">Latest Run Summary</div>
+        <section className="panel panel-secondary">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Analytical Snapshot</div>
+              <div className="panel-heading">Latest Run Summary</div>
+            </div>
+          </div>
           {parseSummary ? (
             <>
-              <div className="kpi-row wrap">
+              <div className="kpi-row wrap kpi-row-compact">
                 <KpiCard value={parseSummary.totalTokens} label="Tokens" />
                 <KpiCard value={parseSummary.knownTokens} label="Known" variant="success" />
                 <KpiCard value={parseSummary.unknownTokens} label="Unknown" variant="warning" />
@@ -157,16 +173,24 @@ export function ParseTab() {
       </div>
 
       <section className="panel">
-        <div className="panel-title">Token Insights</div>
-        <div className="toolbar">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">Data Review</div>
+            <div className="panel-heading">Token Insights</div>
+          </div>
+          {result ? <span className="header-inline-note">{filteredRows.length} rows shown</span> : null}
+        </div>
+        <div className="toolbar toolbar-spread">
           <input
             placeholder="Filter rows by token, normalized form, or category..."
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            style={{ width: 280 }}
+            className="filter-input"
             disabled={!result}
           />
-          {result ? <span className="header-inline-note">{filteredRows.length} rows shown</span> : null}
+          <span className="header-inline-note">
+            {result ? 'Right-click a row to sync a token.' : 'Results appear here after a parse run.'}
+          </span>
         </div>
         {error ? (
           <SectionMessage

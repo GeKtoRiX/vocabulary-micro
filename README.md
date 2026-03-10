@@ -32,6 +32,7 @@ Current implementation is transitional by design:
 pip install -r requirements.txt
 cd frontend && npm install
 cd ../backend/services && npm install
+bash ./scripts/prepare_docker_runtime.sh
 ```
 
 Optional local env templates:
@@ -51,7 +52,7 @@ cp .env.compose.sqlite.example .env.compose.sqlite
 ./start.sh              # gateway + internal services + built SPA
 ./start.sh --build      # build frontend, then start all services
 ./start.sh --dev        # Vite dev server + all backend services
-./start.sh --postgres   # owner services on Postgres using OWNER_SERVICES_* defaults
+./start.sh --postgres   # owner services on Postgres + local preloaded docker compose postgres bootstrap for localhost DSN
 ```
 
 Or directly:
@@ -69,22 +70,38 @@ Or with an env file:
 
 ```bash
 cp .env.postgres.example .env.postgres
+bash ./scripts/prepare_docker_runtime.sh
 ./start.sh --postgres
 ```
 
 Docker Compose:
 
 ```bash
-docker compose up    # Postgres-first default runtime
+bash ./scripts/prepare_docker_runtime.sh
+docker compose up    # Postgres-first default runtime, no install/download on startup
 
 docker compose --env-file .env.compose.postgres up
 ```
+
+`./scripts/prepare_docker_runtime.sh` pulls `postgres:16` and builds local runtime images
+`vocabulary-python-runtime:local` and `vocabulary-node-runtime:local`. After that, `./start.sh --postgres`
+and `docker compose up` use only already prepared local images and do not install/download dependencies on boot.
+
+`./start.sh --postgres` bootstraps the local `postgres` compose service automatically when
+`OWNER_SERVICES_POSTGRES_URL` points to `127.0.0.1` or `localhost`. Set `START_POSTGRES_VIA_COMPOSE=0`
+if you want to target an already running external Postgres instead.
+
+Compose runs Postgres as a separate container and persists its data on the host filesystem via
+`POSTGRES_DATA_DIR` (default: `./docker-data/postgres`). You can rebuild or replace application
+containers without losing database files. The actual Postgres cluster is stored in the `PGDATA`
+subdirectory inside that mount so the bind mount root can safely contain helper files like `.gitignore`.
 
 The compose Postgres template uses `requirements.compose.txt` for Python services so smoke/CI can start without downloading the full `spacy-transformers` / `torch` stack.
 
 Or with an env file:
 
 ```bash
+bash ./scripts/prepare_docker_runtime.sh
 docker compose --env-file .env.compose.postgres up
 docker compose --env-file .env.compose.sqlite up
 ```

@@ -59,3 +59,5 @@ Thumbs.db
 backend/services/node_modules/
 backend/services/**/dist/
 frontend/dist/
+docker-data/postgres/*
+!docker-data/postgres/.gitignore

@@ -1,0 +1,80 @@
+# Dockerfile для NLP-сервиса с GPU-ускорением на AMD ROCm.
+# Используется для сборки образа, который обращается к хостовым /dev/kfd и /dev/dri.
+#
+# Сборка:
+#   docker build -f docker/Dockerfile.python-runtime-rocm \
+#       -t vocabulary-python-runtime-rocm:local .
+#
+# Запуск через docker-compose (см. docker-compose.rocm.yml):
+#   docker compose -f docker-compose.yml -f docker-compose.rocm.yml up nlp-service
+#
+# Требования на хосте:
+#   - ROCm 6.x установлен: https://rocm.docs.amd.com/en/latest/deploy/linux/index.html
+#   - Пользователь в группах 'render' и 'video': sudo usermod -aG render,video $USER
+#   - Для RX 7600 XT (gfx1102): HSA_OVERRIDE_GFX_VERSION=11.0.0
+
+FROM python:3.12-slim
+
+ARG PYTORCH_ROCM_VERSION=rocm6.2
+ARG SBERT_MODEL=all-MiniLM-L6-v2
+ARG SPACY_MODEL=en_core_web_trf
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TOKENIZERS_PARALLELISM=false \
+    NLTK_DATA=/usr/share/nltk_data \
+    # RX 7600 XT = gfx1102; ROCm официально поддерживает gfx1100,
+    # override позволяет использовать карту как gfx1100-совместимую.
+    HSA_OVERRIDE_GFX_VERSION=11.0.0
+
+WORKDIR /app
+
+# Системные зависимости: libgomp (OpenMP для PyTorch)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Шаг 1: PyTorch ROCm ────────────────────────────────────────────────────────
+# PyTorch ROCm-колёса содержат bundled HIP runtime — полный ROCm в образе не нужен.
+COPY requirements.txt requirements.rocm.txt /app/
+RUN python -m pip install --upgrade pip \
+    && python -m pip install \
+        --extra-index-url "https://download.pytorch.org/whl/${PYTORCH_ROCM_VERSION}" \
+        "torch>=2.4" \
+        "torchvision>=0.19"
+
+# ── Шаг 2: NLP-зависимости ─────────────────────────────────────────────────────
+RUN python -m pip install \
+        "sentence-transformers>=2.6,<4" \
+        "fastapi>=0.111" \
+        "uvicorn[standard]>=0.29" \
+        "sse-starlette>=1.8" \
+        "pydantic>=2,<3" \
+        "spacy==3.8.0" \
+        "spacy-transformers==1.3.5" \
+        "lemminflect==0.2.3" \
+        "nltk==3.9.1" \
+        "openpyxl==3.1.5" \
+        "Pillow==12.1.1"
+
+# ── Шаг 3: NLTK данные (wordnet, punkt, omw-1.4, ...) ─────────────────────────
+COPY docker/download_nltk_data.py /tmp/download_nltk_data.py
+RUN python /tmp/download_nltk_data.py && rm /tmp/download_nltk_data.py
+
+# ── Шаг 4: spaCy трансформерная модель (~500 MB) ───────────────────────────────
+RUN python -m spacy download ${SPACY_MODEL} \
+    && python -c "import spacy; nlp = spacy.load('${SPACY_MODEL}'); print('[spacy] ${SPACY_MODEL}: OK')"
+
+# ── Шаг 5: SBERT модель (~90 MB) ───────────────────────────────────────────────
+# Скачивается на CPU (GPU недоступен во время docker build), веса те же самые.
+RUN python -c "\
+from sentence_transformers import SentenceTransformer; \
+model = SentenceTransformer('${SBERT_MODEL}', device='cpu'); \
+emb = model.encode(['build-time warmup'], show_progress_bar=False); \
+print(f'[sbert] ${SBERT_MODEL}: OK  dim={emb.shape[1]}')"
+
+# ── Исходный код ────────────────────────────────────────────────────────────────
+COPY backend /app/backend
+COPY core /app/core
+COPY infrastructure /app/infrastructure

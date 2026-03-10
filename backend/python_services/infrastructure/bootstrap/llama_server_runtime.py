@@ -235,8 +235,20 @@ class LlamaCppServerManager:
 
         env = os.environ.copy()
         if config.rocm_library_dir is not None:
-            existing_path = str(env.get("PATH", ""))
-            env["PATH"] = f"{config.rocm_library_dir};{existing_path}"
+            import platform
+            sep = ";" if platform.system() == "Windows" else ":"
+            if platform.system() == "Windows":
+                existing = str(env.get("PATH", ""))
+                env["PATH"] = f"{config.rocm_library_dir}{sep}{existing}"
+            else:
+                # ROCm .so-библиотеки требуют LD_LIBRARY_PATH на Linux.
+                existing_ld = str(env.get("LD_LIBRARY_PATH", ""))
+                env["LD_LIBRARY_PATH"] = (
+                    f"{config.rocm_library_dir}{sep}{existing_ld}"
+                    if existing_ld else str(config.rocm_library_dir)
+                )
+                existing_path = str(env.get("PATH", ""))
+                env["PATH"] = f"{config.rocm_library_dir}{sep}{existing_path}"
 
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:

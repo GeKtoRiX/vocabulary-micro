@@ -1,0 +1,27 @@
+# Зависимости для локального GPU-запуска на AMD RX 7600 XT (gfx1102, ROCm 6.2).
+#
+# Установка одной командой:
+#   pip install -r requirements.rocm.txt \
+#       --extra-index-url https://download.pytorch.org/whl/rocm6.2 \
+#       --break-system-packages
+#
+# После установки проверить доступность GPU:
+#   HSA_OVERRIDE_GFX_VERSION=11.0.0 python3 -c \
+#       "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+--extra-index-url https://download.pytorch.org/whl/rocm6.2
+
+# PyTorch с ROCm — устанавливается из альтернативного индекса выше
+torch>=2.4
+torchvision>=0.19
+
+# Семантический матчинг (SBERT)
+sentence-transformers>=2.6,<4
+
+# spaCy с трансформерами — использует установленный torch автоматически
+spacy==3.8.0
+spacy-transformers==1.3.5
+
+# NLP
+lemminflect==0.2.3
+nltk==3.9.1
