@@ -12,8 +12,8 @@ import {
   loadConfig,
   requestJson,
 } from '@vocabulary/shared'
-import { AssignmentsRepository } from './repository.js'
 import { PostgresAssignmentsRepository } from './postgres_repository.js'
+import { AssignmentsRepository } from './repository.js'
 import { extractSentence, scanAssignment, suggestQuickAddCategory, type LexiconSearchRow } from './scanner.js'
 import type { AssignmentsStore } from './storage.js'
 
@@ -36,20 +36,46 @@ export function buildAssignmentsServiceApp() {
     return repository.listAssignments(query.limit, query.offset)
   })
 
+  app.post('/assignments', async (request, reply) => {
+    try {
+      const body = request.body as { subunits?: Array<{ content?: string }> }
+      reply.code(201).send(await repository.createUnit({ subunits: readUnitSubunits(body.subunits) }))
+    } catch (error) {
+      reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
+    }
+  })
+
   app.get('/assignments/:assignmentId', async (request, reply) => {
     const assignment = await repository.getAssignmentById(Number((request.params as { assignmentId: string }).assignmentId))
     if (!assignment) {
-      reply.code(404).send({ detail: 'Assignment not found.' })
+      reply.code(404).send({ detail: 'Unit not found.' })
       return
     }
     reply.send(assignment)
+  })
+
+  app.put('/assignments/:assignmentId', async (request, reply) => {
+    try {
+      const body = request.body as { subunits?: Array<{ content?: string }> }
+      const updated = await repository.updateAssignment({
+        assignment_id: Number((request.params as { assignmentId: string }).assignmentId),
+        subunits: readUnitSubunits(body.subunits),
+      })
+      if (!updated) {
+        reply.code(404).send({ detail: 'Unit not found.' })
+        return
+      }
+      reply.send(updated)
+    } catch (error) {
+      reply.code(400).send({ detail: error instanceof Error ? error.message : String(error) })
+    }
   })
 
   app.delete('/assignments/:assignmentId', async (request) => {
     const deleted = await repository.deleteAssignment(Number((request.params as { assignmentId: string }).assignmentId))
     return {
       deleted,
-      message: deleted ? 'Assignment deleted.' : 'Assignment not found.',
+      message: deleted ? 'Unit deleted.' : 'Unit not found.',
     }
   })
 
@@ -119,33 +145,29 @@ export function buildAssignmentsServiceApp() {
       content_original?: string
       content_completed: string
     }
-    const saved = await repository.saveAssignment({
+    const result = await runStandaloneScan(config, {
+      assignmentId: null,
       title: String(body.title ?? ''),
-      content_original: String(body.content_original ?? ''),
-      content_completed: String(body.content_completed ?? ''),
+      contentOriginal: String(body.content_original ?? ''),
+      contentCompleted: String(body.content_completed ?? ''),
     })
-    const result = await scanAndPersist(config, repository, saved)
     assertAssignmentScanResultContract(result)
     return result
   })
 
   app.put('/internal/v1/assignments/:assignmentId/update', async (request) => {
-    const assignmentId = String((request.params as { assignmentId: string }).assignmentId)
     const body = request.body as {
       title?: string
       content_original?: string
       content_completed: string
     }
-    const updated = await repository.updateAssignmentContent({
-      assignment_id: Number(assignmentId),
+    const assignmentId = Number((request.params as { assignmentId: string }).assignmentId)
+    const result = await runStandaloneScan(config, {
+      assignmentId,
       title: String(body.title ?? ''),
-      content_original: String(body.content_original ?? ''),
-      content_completed: String(body.content_completed ?? ''),
+      contentOriginal: String(body.content_original ?? ''),
+      contentCompleted: String(body.content_completed ?? ''),
     })
-    if (!updated) {
-      throw new Error(`Assignment #${assignmentId} not found.`)
-    }
-    const result = await scanAndPersist(config, repository, updated)
     assertAssignmentScanResultContract(result)
     return result
   })
@@ -153,53 +175,17 @@ export function buildAssignmentsServiceApp() {
   app.post('/internal/v1/assignments/bulk-rescan', async (request) => {
     const body = request.body as { assignment_ids?: number[] }
     const ids = [...new Set((body.assignment_ids ?? []).map((item) => Number(item)).filter((item) => item > 0))]
-    if (!ids.length) {
-      return {
-        success_count: 0,
-        failed_count: 0,
-        message: 'Bulk rescan: 0 succeeded, 0 failed.',
-      }
-    }
-    const lexiconRows = await fetchAllLexiconRows(config)
-    const assignmentsById = new Map(
-      (await repository.getAssignmentsByIds(ids)).map((assignment) => [assignment.id, assignment] as const),
-    )
-    const processed: number[] = []
-    const failed: number[] = []
-    for (const id of ids) {
-      const assignment = assignmentsById.get(id)
-      if (!assignment) {
-        failed.push(id)
-        continue
-      }
-      try {
-        await scanAndPersist(config, repository, assignment, lexiconRows)
-        processed.push(id)
-      } catch {
-        failed.push(id)
-      }
-    }
     const payload = {
-      success_count: processed.length,
-      failed_count: failed.length,
-      message: `Bulk rescan: ${processed.length} succeeded, ${failed.length} failed.`,
+      success_count: 0,
+      failed_count: ids.length,
+      message: `Bulk rescan unavailable for unit storage: ${ids.length} failed.`,
     }
     assertBulkRescanResultContract(payload)
     return payload
   })
 
   app.get('/internal/v1/assignments/statistics', async () => {
-    const coverage = await repository.getCoverageStats()
-    const totalAssignments = coverage.length
-    const average = totalAssignments
-      ? coverage.reduce((sum, item) => sum + item.coverage_pct, 0) / totalAssignments
-      : 0
-    const payload = {
-      assignment_coverage: coverage,
-      total_assignments: totalAssignments,
-      average_assignment_coverage: average,
-      low_coverage_count: coverage.filter((item) => item.coverage_pct < 60).length,
-    }
+    const payload = await repository.getAssignmentsStatistics()
     assertAssignmentsStatisticsContract(payload)
     return payload
   })
@@ -226,31 +212,23 @@ async function fetchLexiconSearch(
   }>
 }
 
-async function scanAndPersist(
+async function runStandaloneScan(
   config: ReturnType<typeof loadConfig>,
-  repository: AssignmentsStore,
-  assignment: {
-    id: number
+  input: {
+    assignmentId: number | null
     title: string
-    content_original: string
-    content_completed: string
+    contentOriginal: string
+    contentCompleted: string
   },
-  lexiconRows?: LexiconSearchRow[],
 ) {
-  const result = scanAssignment({
-    assignmentId: assignment.id,
-    title: assignment.title,
-    contentOriginal: assignment.content_original,
-    contentCompleted: assignment.content_completed,
-    lexiconRows: lexiconRows ?? await fetchAllLexiconRows(config),
+  return scanAssignment({
+    assignmentId: input.assignmentId,
+    title: input.title,
+    contentOriginal: input.contentOriginal,
+    contentCompleted: input.contentCompleted,
+    lexiconRows: await fetchAllLexiconRows(config),
     completedThresholdPercent: 90,
   })
-  await repository.updateAssignmentStatus({
-    assignment_id: assignment.id,
-    status: result.assignment_status,
-    lexicon_coverage_percent: result.lexicon_coverage_percent,
-  })
-  return result
 }
 
 async function fetchAllLexiconRows(config: ReturnType<typeof loadConfig>): Promise<LexiconSearchRow[]> {
@@ -301,9 +279,9 @@ function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): Ass
   }
 
   return {
-    async saveAssignment(input) {
+    async createUnit(input) {
       await bootstrapIfNeeded()
-      return repository.saveAssignment(input)
+      return repository.createUnit(input)
     },
     async listAssignments(limit, offset) {
       await bootstrapIfNeeded()
@@ -317,13 +295,9 @@ function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): Ass
       await bootstrapIfNeeded()
       return repository.getAssignmentsByIds(ids)
     },
-    async updateAssignmentContent(input) {
+    async updateAssignment(input) {
       await bootstrapIfNeeded()
-      return repository.updateAssignmentContent(input)
-    },
-    async updateAssignmentStatus(input) {
-      await bootstrapIfNeeded()
-      return repository.updateAssignmentStatus(input)
+      return repository.updateAssignment(input)
     },
     async deleteAssignment(id) {
       await bootstrapIfNeeded()
@@ -333,9 +307,9 @@ function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): Ass
       await bootstrapIfNeeded()
       return repository.bulkDelete(ids)
     },
-    async getCoverageStats() {
+    async getAssignmentsStatistics() {
       await bootstrapIfNeeded()
-      return repository.getCoverageStats()
+      return repository.getAssignmentsStatistics()
     },
     async exportSnapshot() {
       await bootstrapIfNeeded()
@@ -441,4 +415,10 @@ async function extractSentenceViaApi(
 
 function serviceBaseUrl(config: { host: string; port: number }): string {
   return buildUrl(`http://${config.host}:${config.port}`, '/')
+}
+
+function readUnitSubunits(input: Array<{ content?: string }> | undefined): Array<{ content: string }> {
+  return (Array.isArray(input) ? input : []).map((subunit) => ({
+    content: String(subunit?.content ?? ''),
+  }))
 }

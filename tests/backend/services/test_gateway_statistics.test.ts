@@ -39,10 +39,10 @@ describe('gateway statistics', () => {
       }
       if (url.includes('/internal/v1/assignments/statistics')) {
         return jsonResponse({
-          assignment_coverage: [{ title: 'Essay', coverage_pct: 75.5, created_at: '2026-03-10T00:00:00.000Z' }],
-          total_assignments: 5,
-          average_assignment_coverage: 75.5,
-          low_coverage_count: 1,
+          units: [{ unit_code: 'Unit05', subunit_count: 4, created_at: '2026-03-10T00:00:00.000Z' }],
+          total_units: 5,
+          total_subunits: 19,
+          average_subunits_per_unit: 3.8,
         })
       }
       throw new Error(`Unexpected fetch: ${url}`)
@@ -55,10 +55,11 @@ describe('gateway statistics', () => {
       expect(result.statusCode).toBe(200)
       expect(result.json()).toMatchObject({
         total_entries: 42,
+        units: [{ unit_code: 'Unit05', subunit_count: 4, created_at: '2026-03-10T00:00:00.000Z' }],
         overview: {
-          total_assignments: 5,
-          average_assignment_coverage: 75.5,
-          low_coverage_count: 1,
+          total_units: 5,
+          total_subunits: 19,
+          average_subunits_per_unit: 3.8,
         },
       })
     } finally {
@@ -81,10 +82,10 @@ describe('gateway statistics', () => {
       }
       if (url.includes('/internal/v1/assignments/statistics')) {
         return jsonResponse({
-          assignment_coverage: [],
-          total_assignments: 0,
-          average_assignment_coverage: 0,
-          low_coverage_count: 0,
+          units: [],
+          total_units: 0,
+          total_subunits: 0,
+          average_subunits_per_unit: 0,
         })
       }
       throw new Error(`Unexpected fetch: ${url}`)

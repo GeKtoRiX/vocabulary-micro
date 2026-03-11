@@ -56,7 +56,9 @@ Thumbs.db
 *.bak
 *.orig
 *.rej
+node_modules/
 backend/services/node_modules/
+frontend/node_modules/
 backend/services/**/dist/
 frontend/dist/
 docker-data/postgres/*

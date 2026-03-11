@@ -1,33 +1,35 @@
 import { runPostgresMigrations } from '@vocabulary/shared'
 import { Pool, type PoolClient, type QueryResultRow } from 'pg'
-import type { AssignmentRecord, AssignmentsExportSnapshot } from './repository.js'
+import type {
+  AssignmentsExportSnapshot,
+  AssignmentsStatisticsRecord,
+  UnitRecord,
+  UnitSubunitDraft,
+  UnitSubunitRecord,
+} from './repository.js'
 
 const SNAPSHOT_TABLES = [
   {
-    name: 'assignments',
+    name: 'units',
     columns: [
       'id',
-      'title',
-      'content_original',
-      'content_completed',
-      'status',
-      'lexicon_coverage_percent',
+      'unit_code',
+      'unit_number',
+      'subunit_count',
       'created_at',
       'updated_at',
     ],
   },
   {
-    name: 'assignment_audio',
+    name: 'unit_subunits',
     columns: [
       'id',
-      'assignment_id',
-      'audio_path',
-      'audio_format',
-      'voice',
-      'style_preset',
-      'duration_sec',
-      'sample_rate',
+      'unit_id',
+      'subunit_code',
+      'position',
+      'content',
       'created_at',
+      'updated_at',
     ],
   },
 ] as const
@@ -52,86 +54,86 @@ export class PostgresAssignmentsRepository {
     })
   }
 
-  async saveAssignment(input: {
-    title: string
-    content_original: string
-    content_completed: string
-  }): Promise<AssignmentRecord> {
+  async createUnit(input: { subunits: UnitSubunitDraft[] }): Promise<UnitRecord> {
     await this.ready
-    const title = this.cleanTitle(input.title)
-    const nowIso = new Date().toISOString()
-    const row = (await this.pool.query(
-      `
-        INSERT INTO assignments(
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
-          created_at,
-          updated_at
-        )
-        VALUES ($1, $2, $3, 'PENDING', 0.0, $4, $5)
-        RETURNING
-          id,
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
-          created_at,
-          updated_at
-      `,
-      [title, String(input.content_original ?? ''), String(input.content_completed ?? ''), nowIso, nowIso],
-    )).rows[0] as DbRow
-    return this.serializeAssignment(row)
+    const subunits = normalizeSubunits(input.subunits)
+    if (!subunits.length) {
+      throw new Error('Unit must contain at least one subunit.')
+    }
+
+    return this.withTransaction(async (client) => {
+      const nowIso = new Date().toISOString()
+      const nextUnitNumber = await this.getNextUnitNumber(client)
+      const unitCode = formatUnitCode(nextUnitNumber)
+      const unitRow = (await client.query(
+        `
+          INSERT INTO units(
+            unit_code,
+            unit_number,
+            subunit_count,
+            created_at,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING
+            id,
+            unit_code,
+            unit_number,
+            subunit_count,
+            created_at,
+            updated_at
+        `,
+        [unitCode, nextUnitNumber, subunits.length, nowIso, nowIso],
+      )).rows[0] as DbRow
+      await this.insertSubunits(client, Number(unitRow.id), nextUnitNumber, subunits, nowIso)
+      return this.getAssignmentById(Number(unitRow.id), client) as Promise<UnitRecord>
+    })
   }
 
-  async listAssignments(limit = 50, offset = 0): Promise<AssignmentRecord[]> {
+  async listAssignments(limit = 50, offset = 0): Promise<UnitRecord[]> {
     await this.ready
     const rows = (await this.pool.query(
       `
         SELECT
           id,
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
+          unit_code,
+          unit_number,
+          subunit_count,
           created_at,
           updated_at
-        FROM assignments
-        ORDER BY id DESC
+        FROM units
+        ORDER BY unit_number DESC
         LIMIT $1 OFFSET $2
       `,
       [Math.max(1, Number(limit) || 50), Math.max(0, Number(offset) || 0)],
     )).rows as DbRow[]
-    return rows.map((row) => this.serializeAssignment(row))
+    return this.attachSubunits(rows)
   }
 
-  async getAssignmentById(id: number): Promise<AssignmentRecord | null> {
+  async getAssignmentById(id: number, client: Pool | PoolClient = this.pool): Promise<UnitRecord | null> {
     await this.ready
-    const row = (await this.pool.query(
+    const row = (await client.query(
       `
         SELECT
           id,
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
+          unit_code,
+          unit_number,
+          subunit_count,
           created_at,
           updated_at
-        FROM assignments
+        FROM units
         WHERE id = $1
         LIMIT 1
       `,
       [Math.max(0, Number(id) || 0)],
     )).rows[0] as DbRow | undefined
-    return row ? this.serializeAssignment(row) : null
+    if (!row) {
+      return null
+    }
+    return (await this.attachSubunits([row], client))[0] ?? null
   }
 
-  async getAssignmentsByIds(ids: number[]): Promise<AssignmentRecord[]> {
+  async getAssignmentsByIds(ids: number[]): Promise<UnitRecord[]> {
     await this.ready
     const safeIds = [...new Set(ids.map((id) => Math.max(0, Number(id) || 0)).filter(Boolean))]
     if (!safeIds.length) {
@@ -141,98 +143,59 @@ export class PostgresAssignmentsRepository {
       `
         SELECT
           id,
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
+          unit_code,
+          unit_number,
+          subunit_count,
           created_at,
           updated_at
-        FROM assignments
+        FROM units
         WHERE id = ANY($1::int[])
+        ORDER BY unit_number DESC
       `,
       [safeIds],
     )).rows as DbRow[]
-    return rows.map((row) => this.serializeAssignment(row))
+    return this.attachSubunits(rows)
   }
 
-  async updateAssignmentContent(input: {
+  async updateAssignment(input: {
     assignment_id: number
-    title: string
-    content_original: string
-    content_completed: string
-  }): Promise<AssignmentRecord | null> {
+    subunits: UnitSubunitDraft[]
+  }): Promise<UnitRecord | null> {
     await this.ready
     const safeId = Math.max(0, Number(input.assignment_id) || 0)
     if (!safeId) {
       return null
     }
-    const nowIso = new Date().toISOString()
-    const row = (await this.pool.query(
-      `
-        UPDATE assignments
-        SET title = $1,
-            content_original = $2,
-            content_completed = $3,
-            updated_at = $4
-        WHERE id = $5
-        RETURNING
-          id,
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
-          created_at,
-          updated_at
-      `,
-      [
-        this.cleanTitle(input.title),
-        String(input.content_original ?? ''),
-        String(input.content_completed ?? ''),
-        nowIso,
-        safeId,
-      ],
-    )).rows[0] as DbRow | undefined
-    return row ? this.serializeAssignment(row) : null
-  }
 
-  async updateAssignmentStatus(input: {
-    assignment_id: number
-    status: string
-    lexicon_coverage_percent: number
-  }): Promise<AssignmentRecord | null> {
-    await this.ready
-    const safeId = Math.max(0, Number(input.assignment_id) || 0)
-    if (!safeId) {
-      return null
+    const subunits = normalizeSubunits(input.subunits)
+    if (!subunits.length) {
+      throw new Error('Unit must contain at least one subunit.')
     }
-    const nowIso = new Date().toISOString()
-    const row = (await this.pool.query(
-      `
-        UPDATE assignments
-        SET status = $1,
-            lexicon_coverage_percent = $2,
-            updated_at = $3
-        WHERE id = $4
-        RETURNING
-          id,
-          title,
-          content_original,
-          content_completed,
-          status,
-          lexicon_coverage_percent,
-          created_at,
-          updated_at
-      `,
-      [
-        String(input.status ?? 'PENDING').trim().toUpperCase() || 'PENDING',
-        Number(input.lexicon_coverage_percent ?? 0),
-        nowIso,
-        safeId,
-      ],
-    )).rows[0] as DbRow | undefined
-    return row ? this.serializeAssignment(row) : null
+
+    return this.withTransaction(async (client) => {
+      const existing = (await client.query(
+        'SELECT unit_number FROM units WHERE id = $1 LIMIT 1',
+        [safeId],
+      )).rows[0] as DbRow | undefined
+      if (!existing) {
+        return null
+      }
+
+      const unitNumber = Number(existing.unit_number ?? 0)
+      const nowIso = new Date().toISOString()
+      await client.query(
+        `
+          UPDATE units
+          SET subunit_count = $1,
+              updated_at = $2
+          WHERE id = $3
+        `,
+        [subunits.length, nowIso, safeId],
+      )
+      await client.query('DELETE FROM unit_subunits WHERE unit_id = $1', [safeId])
+      await this.insertSubunits(client, safeId, unitNumber, subunits, nowIso)
+      return this.getAssignmentById(safeId, client)
+    })
   }
 
   async deleteAssignment(id: number): Promise<boolean> {
@@ -241,7 +204,7 @@ export class PostgresAssignmentsRepository {
     if (!safeId) {
       return false
     }
-    const result = await this.pool.query('DELETE FROM assignments WHERE id = $1', [safeId])
+    const result = await this.pool.query('DELETE FROM units WHERE id = $1', [safeId])
     return (result.rowCount ?? 0) > 0
   }
 
@@ -252,11 +215,11 @@ export class PostgresAssignmentsRepository {
       return { deleted: [], not_found: [] }
     }
     const existing = new Set<number>(
-      ((await this.pool.query('SELECT id FROM assignments WHERE id = ANY($1::int[])', [safeIds])).rows as DbRow[])
+      ((await this.pool.query('SELECT id FROM units WHERE id = ANY($1::int[])', [safeIds])).rows as DbRow[])
         .map((row) => Number(row.id)),
     )
     if (existing.size > 0) {
-      await this.pool.query('DELETE FROM assignments WHERE id = ANY($1::int[])', [safeIds])
+      await this.pool.query('DELETE FROM units WHERE id = ANY($1::int[])', [safeIds])
     }
     return {
       deleted: safeIds.filter((id) => existing.has(id)),
@@ -264,20 +227,37 @@ export class PostgresAssignmentsRepository {
     }
   }
 
-  async getCoverageStats(): Promise<Array<{ title: string; coverage_pct: number; created_at: string }>> {
+  async getAssignmentsStatistics(): Promise<AssignmentsStatisticsRecord> {
     await this.ready
-    return ((await this.pool.query(
+    const summary = (await this.pool.query(
       `
-        SELECT title, lexicon_coverage_percent, created_at
-        FROM assignments
-        ORDER BY created_at DESC
+        SELECT
+          COUNT(*)::int AS total_units,
+          COALESCE(SUM(subunit_count), 0)::int AS total_subunits
+        FROM units
+      `,
+    )).rows[0] as DbRow
+    const totalUnits = Number(summary.total_units ?? 0)
+    const totalSubunits = Number(summary.total_subunits ?? 0)
+    const units = ((await this.pool.query(
+      `
+        SELECT unit_code, subunit_count, created_at
+        FROM units
+        ORDER BY unit_number DESC
         LIMIT 100
       `,
     )).rows as DbRow[]).map((row) => ({
-      title: String(row.title ?? ''),
-      coverage_pct: Number(row.lexicon_coverage_percent ?? 0),
+      unit_code: String(row.unit_code ?? ''),
+      subunit_count: Number(row.subunit_count ?? 0),
       created_at: String(row.created_at ?? ''),
     }))
+
+    return {
+      units,
+      total_units: totalUnits,
+      total_subunits: totalSubunits,
+      average_subunits_per_unit: totalUnits > 0 ? Number((totalSubunits / totalUnits).toFixed(2)) : null,
+    }
   }
 
   async exportSnapshot(): Promise<AssignmentsExportSnapshot> {
@@ -298,16 +278,16 @@ export class PostgresAssignmentsRepository {
 
   async isEmpty(): Promise<boolean> {
     await this.ready
-    const assignmentsCount = Number((await this.pool.query('SELECT COUNT(*)::int AS cnt FROM assignments')).rows[0]?.cnt ?? 0)
-    const audioCount = Number((await this.pool.query('SELECT COUNT(*)::int AS cnt FROM assignment_audio')).rows[0]?.cnt ?? 0)
-    return assignmentsCount === 0 && audioCount === 0
+    const unitsCount = Number((await this.pool.query('SELECT COUNT(*)::int AS cnt FROM units')).rows[0]?.cnt ?? 0)
+    const subunitsCount = Number((await this.pool.query('SELECT COUNT(*)::int AS cnt FROM unit_subunits')).rows[0]?.cnt ?? 0)
+    return unitsCount === 0 && subunitsCount === 0
   }
 
   async importSnapshot(snapshot: AssignmentsExportSnapshot): Promise<void> {
     await this.ready
     const tableMap = new Map(snapshot.tables.map((table) => [table.name, table]))
     await this.withTransaction(async (client) => {
-      await client.query('TRUNCATE TABLE assignment_audio, assignments RESTART IDENTITY')
+      await client.query('TRUNCATE TABLE unit_subunits, units RESTART IDENTITY CASCADE')
       for (const table of SNAPSHOT_TABLES) {
         const source = tableMap.get(table.name)
         if (!source || !source.rows.length) {
@@ -323,8 +303,8 @@ export class PostgresAssignmentsRepository {
           values,
         )
       }
-      await this.syncSequence(client, 'assignments', 'id')
-      await this.syncSequence(client, 'assignment_audio', 'id')
+      await this.syncSequence(client, 'units', 'id')
+      await this.syncSequence(client, 'unit_subunits', 'id')
     })
   }
 
@@ -332,22 +312,101 @@ export class PostgresAssignmentsRepository {
     await this.pool.end()
   }
 
-  private serializeAssignment(row: DbRow): AssignmentRecord {
+  private async attachSubunits(rows: DbRow[], client: Pool | PoolClient = this.pool): Promise<UnitRecord[]> {
+    if (!rows.length) {
+      return []
+    }
+    const unitIds = rows.map((row) => Number(row.id))
+    const subunitsByUnitId = await this.listSubunitsByUnitIds(unitIds, client)
+    return rows.map((row) => this.serializeUnit(row, subunitsByUnitId.get(Number(row.id)) ?? []))
+  }
+
+  private async listSubunitsByUnitIds(unitIds: number[], client: Pool | PoolClient): Promise<Map<number, UnitSubunitRecord[]>> {
+    const safeIds = [...new Set(unitIds.map((id) => Math.max(0, Number(id) || 0)).filter(Boolean))]
+    if (!safeIds.length) {
+      return new Map()
+    }
+    const rows = (await client.query(
+      `
+        SELECT
+          id,
+          unit_id,
+          subunit_code,
+          position,
+          content,
+          created_at,
+          updated_at
+        FROM unit_subunits
+        WHERE unit_id = ANY($1::int[])
+        ORDER BY unit_id ASC, position ASC
+      `,
+      [safeIds],
+    )).rows as DbRow[]
+
+    const grouped = new Map<number, UnitSubunitRecord[]>()
+    for (const row of rows) {
+      const unitId = Number(row.unit_id)
+      const bucket = grouped.get(unitId) ?? []
+      bucket.push(this.serializeSubunit(row))
+      grouped.set(unitId, bucket)
+    }
+    return grouped
+  }
+
+  private async insertSubunits(
+    client: PoolClient,
+    unitId: number,
+    unitNumber: number,
+    subunits: UnitSubunitDraft[],
+    nowIso: string,
+  ): Promise<void> {
+    for (const [index, subunit] of subunits.entries()) {
+      await client.query(
+        `
+          INSERT INTO unit_subunits(
+            unit_id,
+            subunit_code,
+            position,
+            content,
+            created_at,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [unitId, formatSubunitCode(unitNumber, index), index, subunit.content, nowIso, nowIso],
+      )
+    }
+  }
+
+  private async getNextUnitNumber(client: PoolClient): Promise<number> {
+    const row = (await client.query(
+      'SELECT COALESCE(MAX(unit_number), 0) AS max_unit_number FROM units',
+    )).rows[0] as DbRow
+    return Number(row.max_unit_number ?? 0) + 1
+  }
+
+  private serializeUnit(row: DbRow, subunits: UnitSubunitRecord[]): UnitRecord {
     return {
       id: Number(row.id),
-      title: String(row.title ?? ''),
-      content_original: String(row.content_original ?? ''),
-      content_completed: String(row.content_completed ?? ''),
-      status: String(row.status ?? 'PENDING'),
-      lexicon_coverage_percent: Number(row.lexicon_coverage_percent ?? 0),
+      unit_code: String(row.unit_code ?? ''),
+      unit_number: Number(row.unit_number ?? 0),
+      subunit_count: Number(row.subunit_count ?? subunits.length),
+      subunits,
       created_at: row.created_at == null ? null : String(row.created_at),
       updated_at: row.updated_at == null ? null : String(row.updated_at),
     }
   }
 
-  private cleanTitle(value: string): string {
-    const cleaned = String(value ?? '').trim()
-    return cleaned || 'Untitled Assignment'
+  private serializeSubunit(row: DbRow): UnitSubunitRecord {
+    return {
+      id: Number(row.id),
+      unit_id: Number(row.unit_id),
+      subunit_code: String(row.subunit_code ?? ''),
+      position: Number(row.position ?? 0),
+      content: String(row.content ?? ''),
+      created_at: row.created_at == null ? null : String(row.created_at),
+      updated_at: row.updated_at == null ? null : String(row.updated_at),
+    }
   }
 
   private async withTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -402,4 +461,28 @@ function normalizeSchemaName(input: string): string {
     throw new Error(`Invalid Postgres schema name: ${value}`)
   }
   return value
+}
+
+function normalizeSubunits(subunits: UnitSubunitDraft[]): UnitSubunitDraft[] {
+  return (Array.isArray(subunits) ? subunits : [])
+    .map((subunit) => ({ content: String(subunit?.content ?? '').trim() }))
+    .filter((subunit) => subunit.content.length > 0)
+}
+
+function formatUnitCode(unitNumber: number): string {
+  return `Unit${String(Math.max(1, unitNumber)).padStart(2, '0')}`
+}
+
+function formatSubunitCode(unitNumber: number, index: number): string {
+  return `${Math.max(1, unitNumber)}${toAlphaIndex(index)}`
+}
+
+function toAlphaIndex(index: number): string {
+  let value = Math.max(0, index)
+  let result = ''
+  do {
+    result = String.fromCharCode(65 + (value % 26)) + result
+    value = Math.floor(value / 26) - 1
+  } while (value >= 0)
+  return result
 }

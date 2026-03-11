@@ -74,45 +74,32 @@ function stubAssignmentsFetch(lexiconRows: Array<Record<string, unknown>>) {
   return fetchMock
 }
 
-async function createAssignment(app: ReturnType<typeof buildAssignmentsServiceApp>, title: string, contentCompleted: string) {
+async function createUnit(app: ReturnType<typeof buildAssignmentsServiceApp>, subunits: string[]) {
   const response = await app.inject({
     method: 'POST',
-    url: '/internal/v1/assignments/scan',
+    url: '/assignments',
     payload: {
-      title,
-      content_original: 'I walk',
-      content_completed: contentCompleted,
+      subunits: subunits.map((content) => ({ content })),
     },
   })
-  expect(response.statusCode).toBe(200)
+  expect(response.statusCode).toBe(201)
   return response.json()
 }
 
 describe('assignments-service', () => {
-  it('owns assignments CRUD, scan, quick-add and stats', async () => {
+  it('owns unit CRUD, quick-add and unit statistics', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
     tempDirs.push(dir)
     configureAssignmentsEnv(dir)
-    const fetchMock = stubAssignmentsFetch([
+    stubAssignmentsFetch([
       { id: 1, category: 'Verb', value: 'run', normalized: 'run', source: 'manual', status: 'approved' },
     ])
 
     const app = buildAssignmentsServiceApp()
     try {
-      const scan = await app.inject({
-        method: 'POST',
-        url: '/internal/v1/assignments/scan',
-        payload: {
-          title: 'Essay 1',
-          content_original: 'I walk',
-          content_completed: 'I run daily',
-        },
-      })
-      expect(scan.statusCode).toBe(200)
-      const scanPayload = scan.json()
-      expect(scanPayload.assignment_id).toBeTypeOf('number')
-      expect(scanPayload.word_count).toBe(3)
-      expect(scanPayload.matches[0].term).toBe('run')
+      const created = await createUnit(app, ['Unit 1A text', 'Unit 1B text'])
+      expect(created.unit_code).toBe('Unit01')
+      expect(created.subunits.map((item: { subunit_code: string }) => item.subunit_code)).toEqual(['1A', '1B'])
 
       const list = await app.inject({ method: 'GET', url: '/assignments' })
       expect(list.statusCode).toBe(200)
@@ -137,58 +124,37 @@ describe('assignments-service', () => {
           term: 'swiftly',
           content_completed: 'I run every day.',
           category: 'Verb',
-          assignment_id: scanPayload.assignment_id,
+          assignment_id: created.id,
         },
       })
       expect(quickAdd.statusCode).toBe(200)
       expect(quickAdd.json().status).toBe('added')
 
-      const update = await app.inject({
+      const updated = await app.inject({
         method: 'PUT',
-        url: `/internal/v1/assignments/${scanPayload.assignment_id}/update`,
+        url: `/assignments/${created.id}`,
         payload: {
-          title: 'Essay 1',
-          content_original: 'I walk',
-          content_completed: 'I run',
+          subunits: [{ content: 'Updated 1A' }, { content: 'Updated 1B' }, { content: 'Updated 1C' }],
         },
       })
-      expect(update.statusCode).toBe(200)
-      expect(update.json().assignment_id).toBe(scanPayload.assignment_id)
+      expect(updated.statusCode).toBe(200)
+      expect(updated.json().subunits.map((item: { subunit_code: string }) => item.subunit_code)).toEqual(['1A', '1B', '1C'])
 
-      const secondScan = await app.inject({
-        method: 'POST',
-        url: '/internal/v1/assignments/scan',
-        payload: {
-          title: 'Essay 2',
-          content_original: 'I walk',
-          content_completed: 'I run daily',
-        },
-      })
-      expect(secondScan.statusCode).toBe(200)
-
-      fetchMock.mockClear()
-      const bulkRescan = await app.inject({
-        method: 'POST',
-        url: '/internal/v1/assignments/bulk-rescan',
-        payload: {
-          assignment_ids: [scanPayload.assignment_id, secondScan.json().assignment_id],
-        },
-      })
-      expect(bulkRescan.statusCode).toBe(200)
-      expect(bulkRescan.json().success_count).toBe(2)
-      expect(
-        fetchMock.mock.calls.filter(([input]) => String(input).includes('/internal/v1/lexicon/search')),
-      ).toHaveLength(1)
+      await createUnit(app, ['Unit 2A text'])
 
       const stats = await app.inject({ method: 'GET', url: '/internal/v1/assignments/statistics' })
       expect(stats.statusCode).toBe(200)
-      expect(stats.json().total_assignments).toBe(2)
+      expect(stats.json()).toMatchObject({
+        total_units: 2,
+        total_subunits: 4,
+        average_subunits_per_unit: 2,
+      })
     } finally {
       await app.close()
     }
   })
 
-  it('bulk-delete returns correct counts', async () => {
+  it('bulk-delete returns correct counts for units', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
     tempDirs.push(dir)
     configureAssignmentsEnv(dir)
@@ -198,13 +164,13 @@ describe('assignments-service', () => {
 
     const app = buildAssignmentsServiceApp()
     try {
-      const first = await createAssignment(app, 'Essay 1', 'I run')
-      const second = await createAssignment(app, 'Essay 2', 'I run daily')
+      const first = await createUnit(app, ['One'])
+      const second = await createUnit(app, ['Two', 'Three'])
 
       const bulkDelete = await app.inject({
         method: 'POST',
         url: '/assignments/bulk-delete',
-        payload: { assignment_ids: [first.assignment_id, second.assignment_id, 999] },
+        payload: { assignment_ids: [first.id, second.id, 999] },
       })
 
       expect(bulkDelete.statusCode).toBe(200)
@@ -220,56 +186,42 @@ describe('assignments-service', () => {
     }
   })
 
-  it('statistics computes average coverage correctly', async () => {
+  it('scan endpoint still returns contract payload without persisting units', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
     tempDirs.push(dir)
     configureAssignmentsEnv(dir)
-    stubAssignmentsFetch([
-      { id: 1, category: 'Verb', value: 'run', normalized: 'run', source: 'manual', status: 'approved' },
-      { id: 2, category: 'Adverb', value: 'daily', normalized: 'daily', source: 'manual', status: 'approved' },
-    ])
-
-    const app = buildAssignmentsServiceApp()
-    try {
-      await createAssignment(app, 'Full', 'run daily')
-      await createAssignment(app, 'Half', 'run cat dog daily')
-
-      const stats = await app.inject({ method: 'GET', url: '/internal/v1/assignments/statistics' })
-
-      expect(stats.statusCode).toBe(200)
-      expect(stats.json().average_assignment_coverage).toBe(75)
-      expect(stats.json().total_assignments).toBe(2)
-    } finally {
-      await app.close()
-    }
-  })
-
-  it('update re-runs scan with new content', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
-    tempDirs.push(dir)
-    configureAssignmentsEnv(dir)
-    stubAssignmentsFetch([
+    const fetchMock = stubAssignmentsFetch([
       { id: 1, category: 'Verb', value: 'run', normalized: 'run', source: 'manual', status: 'approved' },
     ])
 
     const app = buildAssignmentsServiceApp()
     try {
-      const created = await createAssignment(app, 'Essay', 'jump high')
-      expect(created.lexicon_coverage_percent).toBe(0)
-
-      const updated = await app.inject({
-        method: 'PUT',
-        url: `/internal/v1/assignments/${created.assignment_id}/update`,
+      const scan = await app.inject({
+        method: 'POST',
+        url: '/internal/v1/assignments/scan',
         payload: {
-          title: 'Essay',
+          title: 'Legacy scan',
           content_original: 'I walk',
-          content_completed: 'run',
+          content_completed: 'I run daily',
         },
       })
 
-      expect(updated.statusCode).toBe(200)
-      expect(updated.json().lexicon_coverage_percent).toBe(100)
-      expect(updated.json().assignment_status).toBe('COMPLETED')
+      expect(scan.statusCode).toBe(200)
+      expect(scan.json().assignment_id).toBeNull()
+      expect(scan.json().matches[0].term).toBe('run')
+
+      const list = await app.inject({ method: 'GET', url: '/assignments' })
+      expect(list.json()).toEqual([])
+
+      const bulkRescan = await app.inject({
+        method: 'POST',
+        url: '/internal/v1/assignments/bulk-rescan',
+        payload: { assignment_ids: [1, 2] },
+      })
+      expect(bulkRescan.json()).toMatchObject({ success_count: 0, failed_count: 2 })
+      expect(
+        fetchMock.mock.calls.filter(([input]) => String(input).includes('/internal/v1/lexicon/search')),
+      ).toHaveLength(1)
     } finally {
       await app.close()
     }

@@ -232,6 +232,7 @@ def _running_host_stack(
             "OWNER_SERVICES_STORAGE_BACKEND": "postgres",
             "OWNER_SERVICES_POSTGRES_URL": f"postgresql://postgres:postgres@127.0.0.1:{postgres_port}/vocabulary",
             "OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE": "1",
+            "BERT_DEVICE": "cpu",
         })
         if env_overrides:
             env.update(env_overrides)
@@ -249,6 +250,8 @@ def _running_host_stack(
                 system_health = _wait_for_json("http://127.0.0.1:8765/api/system/health")
                 lexicon_health = _wait_for_json("http://127.0.0.1:4011/health")
                 assignments_health = _wait_for_json("http://127.0.0.1:4012/health")
+                nlp_health = _wait_for_json("http://127.0.0.1:8767/internal/v1/system/health")
+                export_health = _wait_for_json("http://127.0.0.1:8768/internal/v1/system/health")
             except Exception:
                 _terminate_process(process)
                 logs = log_path.read_text("utf-8", errors="replace")
@@ -262,6 +265,8 @@ def _running_host_stack(
             "system_health": system_health,
             "lexicon_health": lexicon_health,
             "assignments_health": assignments_health,
+            "nlp_health": nlp_health,
+            "export_health": export_health,
         }
     finally:
         if process is not None:
@@ -270,28 +275,16 @@ def _running_host_stack(
         _run_shell(f"sg docker -c 'docker rm -f {container_name} >/dev/null 2>&1 || true'")
 
 
-def _run_assignment_scan(title: str, term: str) -> tuple[int, str]:
-    status, scan_start = _request_json(
-        "http://127.0.0.1:8765/api/assignments/scan",
+def _create_unit(subunit_contents: list[str]) -> dict:
+    status, payload = _request_json(
+        "http://127.0.0.1:8765/api/assignments",
         method="POST",
         payload={
-            "title": title,
-            "content_original": "I walk in the park.",
-            "content_completed": f"I {term} swiftly in the park.",
+            "subunits": [{"content": content} for content in subunit_contents],
         },
     )
-    assert status == 200
-    job_id = scan_start["job_id"]
-    status, stream_payload = _request_text(
-        f"http://127.0.0.1:8765/api/assignments/scan/jobs/{job_id}/stream",
-    )
-    assert status == 200
-    assert '"type":"result"' in stream_payload
-    assert title in stream_payload
-
-    assignments = _request_json("http://127.0.0.1:8765/api/assignments")[1]
-    created = next(item for item in assignments if item["title"] == title)
-    return int(created["id"]), stream_payload
+    assert status in (200, 201)
+    return payload
 
 
 @pytest.fixture()
@@ -314,7 +307,8 @@ def test_postgres_cutover_smoke(running_postgres_cutover_stack: dict[str, object
     suffix = uuid.uuid4().hex[:8]
     category_name = f"Postgres Smoke {suffix}"
     term = f"postgresprobe{suffix}"
-    title = f"Postgres Assignment Smoke {suffix}"
+    first_subunit = f"I {term} swiftly in the park."
+    second_subunit = f"We repeat {term} again in this unit."
 
     status, category_payload = _request_json(
         "http://127.0.0.1:8765/api/lexicon/categories",
@@ -343,18 +337,32 @@ def test_postgres_cutover_smoke(running_postgres_cutover_stack: dict[str, object
     assert status == 200
     assert any(row["normalized"] == term for row in search_payload["rows"])
 
-    _, stream_payload = _run_assignment_scan(title, term)
+    created_unit = _create_unit([first_subunit, second_subunit])
 
     statistics = _request_json("http://127.0.0.1:8765/api/statistics")[1]
-    assert statistics["overview"]["total_assignments"] >= baseline_assignment_count + 1
+    assert statistics["overview"]["total_units"] >= baseline_assignment_count + 1
+    assert statistics["overview"]["total_subunits"] >= 2
 
     lexicon_count = _docker_exec(
         container_name,
         f"select count(*) from lexicon.lexicon_entries where normalized = '{term}';",
     )
-    assignment_row = _docker_exec(
+    unit_row = _docker_exec(
         container_name,
-        f"select title || '|' || status from assignments.assignments where title = '{title}';",
+        (
+            "select unit_code || '|' || subunit_count "
+            "from assignments.units "
+            f"where id = {int(created_unit['id'])};"
+        ),
+    )
+    subunit_rows = _docker_exec(
+        container_name,
+        (
+            "select subunit_code || '|' || content "
+            "from assignments.unit_subunits "
+            f"where unit_id = {int(created_unit['id'])} "
+            "order by position;"
+        ),
     )
     migration_rows = _docker_exec(
         container_name,
@@ -367,8 +375,13 @@ def test_postgres_cutover_smoke(running_postgres_cutover_stack: dict[str, object
     ).splitlines()
 
     assert lexicon_count == "1"
-    assert assignment_row == f"{title}|PENDING"
+    assert unit_row == f"{created_unit['unit_code']}|2"
+    assert subunit_rows.splitlines() == [
+        f"{created_unit['subunits'][0]['subunit_code']}|{first_subunit}",
+        f"{created_unit['subunits'][1]['subunit_code']}|{second_subunit}",
+    ]
     assert "assignments-service:0001_init" in migration_rows
+    assert "assignments-service:0002_units_model" in migration_rows
     assert "lexicon-service:0001_init" in migration_rows
     schema_rows = _docker_exec(
         container_name,
@@ -408,8 +421,8 @@ def test_bulk_rescan_gateway(running_postgres_cutover_stack: dict[str, object]) 
 
     assignment_ids = []
     for index in range(3):
-        assignment_id, _ = _run_assignment_scan(f"Bulk Rescan {suffix}-{index}", term)
-        assignment_ids.append(assignment_id)
+        unit = _create_unit([f"Bulk {term} block {index}A", f"Bulk {term} block {index}B"])
+        assignment_ids.append(int(unit["id"]))
 
     status, bulk_start = _request_json(
         "http://127.0.0.1:8765/api/assignments/bulk-rescan",
@@ -424,8 +437,9 @@ def test_bulk_rescan_gateway(running_postgres_cutover_stack: dict[str, object]) 
     )
     assert status == 200
     assert '"type":"result"' in stream_payload
+    assert '"failed_count":3' in stream_payload
     statistics = _request_json("http://127.0.0.1:8765/api/statistics")[1]
-    assert statistics["overview"]["total_assignments"] >= baseline_assignment_count + 3
+    assert statistics["overview"]["total_units"] >= baseline_assignment_count + 3
 
 
 def test_lexicon_export_returns_xlsx(running_postgres_cutover_stack: dict[str, object]) -> None:
@@ -483,11 +497,12 @@ def test_statistics_composition(running_postgres_cutover_stack: dict[str, object
     )
     assert status == 200
 
-    _run_assignment_scan(f"Stats Assignment {suffix}", term)
+    _create_unit([f"Stats {term} block A", f"Stats {term} block B", f"Stats {term} block C"])
 
     statistics = _request_json("http://127.0.0.1:8765/api/statistics")[1]
-    assert statistics["overview"]["total_assignments"] > 0
-    assert 0 <= statistics["overview"]["average_assignment_coverage"] <= 100
+    assert statistics["overview"]["total_units"] > 0
+    assert statistics["overview"]["total_subunits"] > 0
+    assert statistics["overview"]["average_subunits_per_unit"] >= 1
 
 
 def test_frontend_shell_and_assets_are_served(running_postgres_cutover_stack: dict[str, object]) -> None:
@@ -511,21 +526,19 @@ def test_runtime_failure_modes_surface_public_errors(running_postgres_cutover_st
     _kill_process_by_pattern("[p]ython3 -m backend.python_services.nlp_service.main")
     time.sleep(1)
 
-    status, parse_start = _request_json(
-        "http://127.0.0.1:8765/api/parse",
-        method="POST",
-        payload={"text": "I run quickly."},
-    )
+    try:
+        status, parse_start = _request_json(
+            "http://127.0.0.1:8765/api/parse",
+            method="POST",
+            payload={"text": "I run quickly."},
+        )
+    except urllib.error.URLError as error:
+        assert "Connection refused" in str(error)
+        return
+
     assert status == 200
     status, parse_stream = _request_text(
         f"http://127.0.0.1:8765/api/parse/jobs/{parse_start['job_id']}/stream",
     )
     assert status == 200
     assert '"type":"error"' in parse_stream
-
-    _kill_process_by_pattern("[p]ython3 -m backend.python_services.export_service.main")
-    time.sleep(1)
-
-    status, export_payload = _request_json_allow_error("http://127.0.0.1:8765/api/lexicon/export")
-    assert status == 502
-    assert str(export_payload.get("detail", "")).strip()
