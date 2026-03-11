@@ -12,7 +12,7 @@ export NVM_DIR="$HOME/.nvm"
 
 BUILD_FRONTEND=false
 DEV_MODE=false
-RESTART_MODE=false
+RESTART_MODE=true
 SERVICES_READY=false
 POSTGRES_MODE=0
 PRINT_CONFIG=false
@@ -539,14 +539,15 @@ for arg in "$@"; do
     --build)        BUILD_FRONTEND=true ;;
     --dev)          DEV_MODE=true ;;
     --restart)      RESTART_MODE=true ;;
+    --no-restart)   RESTART_MODE=false ;;
     --postgres)     POSTGRES_MODE=1 ;;
     --print-config) PRINT_CONFIG=true ;;
     --help)
       cat <<EOF
-Usage: $0 [--build] [--dev] [--restart] [--postgres] [--print-config]
+Usage: $0 [--build] [--dev] [--no-restart] [--postgres] [--print-config]
   --build         Build frontend before starting server
   --dev           Start Vite dev server instead of serving built files
-  --restart       Kill any existing processes on managed ports before starting
+  --no-restart    Fail instead of killing existing processes on managed ports
   --postgres      Run owner services on Postgres using OWNER_SERVICES_* defaults
                   and auto-start local docker compose postgres for localhost DSN
   --print-config  Print resolved runtime config and exit
