@@ -39,6 +39,8 @@
 - Проверка инструментов: `python3 -m pytest -q tests/governance/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-11` — Third-pass LLM adapter переведён на streaming OpenAI-compatible chat path с `chat_template_kwargs.enable_thinking`, а `scripts/llama_server_docker.sh` по умолчанию использует ROCm-образ `ghcr.io/ggml-org/llama.cpp:server-rocm` и пробрасывает AMD GPU/HSA env.
+  Зачем: на локальном llama.cpp runtime потоковая обработка chunk-by-chunk лучше согласуется с реальным поведением сервера, упрощает работу с `reasoning_content` и снижает риск таймаутов ожидания полного ответа; отдельный ROCm default-path закрепляет рабочий AMD local-first сценарий без ручной перенастройки wrapper-скрипта.
 - `2026-03-11` — `start.sh` разделён на thin entrypoint + shell-модули `scripts/start/{helpers,commands,runtime}.sh`, при этом внешний интерфейс запуска (`./start.sh ...`) сохранён без изменений.
   Зачем: монолитный launcher стал трудно поддерживать и безопасно править; разнесение по зонам ответственности упрощает локальные изменения, review и точечную проверку без изменения bootstrap-поведения.
 - `2026-03-11` — Для local `Qwen3.5-9B-GGUF` через `llama.cpp` third-pass extraction использует fallback-парсинг `reasoning_content`, если OpenAI-compatible chat response возвращает пустой `message.content`.

@@ -95,7 +95,7 @@ class PipelineSettings:
     third_pass_llm_base_url: str = "http://127.0.0.1:1234"
     third_pass_llm_model: str = "llama3.1-8b-instruct"
     third_pass_llm_timeout_ms: int = 120_000
-    third_pass_llm_max_tokens: int = 400
+    third_pass_llm_max_tokens: int = 256
     third_pass_llm_max_items: int = 12
     third_pass_llm_think_mode: bool = False
     third_pass_llm_api_key: str | None = None

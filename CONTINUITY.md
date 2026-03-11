@@ -1,7 +1,7 @@
 # CONTINUITY.md
 
 ## Current Task
-Синхронизация документации и agent-facing обвязки под модульный `start.sh`, плюс smoke-проверка launcher.
+Коммит и push оставшихся LLM runtime-изменений после launcher/docs цикла.
 
 ## Progress
 100%
@@ -10,15 +10,14 @@
 Нет блокеров.
 
 ## Next Step
-Следующая задача определяется пользователем; при развитии launcher можно вынести текущий shell smoke в отдельный автотест.
+Следующая задача определяется пользователем; для LLM runtime при необходимости поднять стек и прогнать `scripts/smoke_llm_speed.py`.
 
 ## What Was Done (последний цикл)
 
-1. Созданы модули `scripts/start/helpers.sh`, `scripts/start/commands.sh`, `scripts/start/runtime.sh`.
-2. `start.sh` сокращён до thin entrypoint: инициализация, `source` модулей, traps, вызов `start_main`.
-3. Обновлены `CLAUDE.md`, `docs/agents.md`, `agents/README.md`, `docs/USER_GUIDE.md`, `docs/LLM_PROJECT_MAP.md` под новую структуру launcher.
-4. Исправлена регрессия в `scripts/start/runtime.sh`: boolean guards для `DEV_MODE` переведены с `$DEV_MODE && ...` на явные `if`, чтобы launcher не падал под `set -e`.
-5. Smoke пройден: `bash -n`, governance pytest, реальный launcher startup/health-check на альтернативных портах без LLM.
+1. Проверены оставшиеся изменения в `llm_third_pass.py`, `settings.py`, `llama_server_docker.sh`, `scripts/smoke_llm_speed.py`.
+2. Лёгкая валидация пройдена: `python3 -m py_compile ...` и `bash -n scripts/llama_server_docker.sh`.
+3. Полный LLM/gateway smoke не запускался, потому что локальные endpoints `127.0.0.1:8000` и `127.0.0.1:8765` были недоступны на момент проверки.
+4. `MEMORY.md` обновлён под streaming LLM path и ROCm default-wrapper.
 
 ## Last Updated
 2026-03-11
