@@ -12,6 +12,7 @@ export NVM_DIR="$HOME/.nvm"
 
 BUILD_FRONTEND=false
 DEV_MODE=false
+RESTART_MODE=false
 SERVICES_READY=false
 POSTGRES_MODE=0
 PRINT_CONFIG=false
@@ -115,13 +116,32 @@ is_local_postgres_host() {
   esac
 }
 
+kill_port_owner() {
+  local port="$1"
+  # fuser -k посылает SIGTERM процессам, слушающим порт
+  if fuser -k "${port}/tcp" >/dev/null 2>&1; then
+    sleep 1
+  fi
+}
+
 require_port_free() {
   local host="$1" port="$2" label="$3"
-  if is_tcp_port_reachable "$host" "$port"; then
-    echo "[start] Port ${host}:${port} is already in use; cannot start ${label}."
-    echo "[start] Stop the existing process or change the corresponding *_PORT variable."
-    exit 1
+  if ! is_tcp_port_reachable "$host" "$port"; then
+    return 0
   fi
+  if $RESTART_MODE; then
+    echo "[start] Порт ${host}:${port} занят (${label}); убиваю процесс ..."
+    kill_port_owner "$port"
+    if is_tcp_port_reachable "$host" "$port"; then
+      echo "[start] Порт ${port} всё ещё занят после SIGTERM; принудительное завершение ..."
+      fuser -k -9 "${port}/tcp" >/dev/null 2>&1 || true
+      sleep 1
+    fi
+    return 0
+  fi
+  echo "[start] Port ${host}:${port} is already in use; cannot start ${label}."
+  echo "[start] Use --restart to automatically stop existing processes."
+  exit 1
 }
 
 wait_for_http_ready() {
@@ -518,13 +538,15 @@ for arg in "$@"; do
   case "$arg" in
     --build)        BUILD_FRONTEND=true ;;
     --dev)          DEV_MODE=true ;;
+    --restart)      RESTART_MODE=true ;;
     --postgres)     POSTGRES_MODE=1 ;;
     --print-config) PRINT_CONFIG=true ;;
     --help)
       cat <<EOF
-Usage: $0 [--build] [--dev] [--postgres] [--print-config]
+Usage: $0 [--build] [--dev] [--restart] [--postgres] [--print-config]
   --build         Build frontend before starting server
   --dev           Start Vite dev server instead of serving built files
+  --restart       Kill any existing processes on managed ports before starting
   --postgres      Run owner services on Postgres using OWNER_SERVICES_* defaults
                   and auto-start local docker compose postgres for localhost DSN
   --print-config  Print resolved runtime config and exit
