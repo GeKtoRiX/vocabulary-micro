@@ -39,6 +39,8 @@
 - Проверка инструментов: `python3 -m pytest -q tests/governance/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-11` — `start.sh` разделён на thin entrypoint + shell-модули `scripts/start/{helpers,commands,runtime}.sh`, при этом внешний интерфейс запуска (`./start.sh ...`) сохранён без изменений.
+  Зачем: монолитный launcher стал трудно поддерживать и безопасно править; разнесение по зонам ответственности упрощает локальные изменения, review и точечную проверку без изменения bootstrap-поведения.
 - `2026-03-11` — Для local `Qwen3.5-9B-GGUF` через `llama.cpp` third-pass extraction использует fallback-парсинг `reasoning_content`, если OpenAI-compatible chat response возвращает пустой `message.content`.
   Зачем: на реальном `llama.cpp` runtime Qwen3.5 стабильно отдавал кандидатов phrasal verb/idiom внутри `reasoning_content`, а не в финальном `content`, из-за чего third-pass формально завершался `status=ok`, но возвращал пустые `occurrences`; fallback позволяет сохранить живой LLM-path без смены runtime и подтверждён реальным e2e smoke на `look into` / `spill the beans` / `carry out`.
 - `2026-03-11` — Managed third-pass LLM service в `start.sh` переведён с жёсткой привязки к `vLLM` на runtime-переключаемую схему `llama_cpp | vllm`, где локальный default-path теперь `llama.cpp + GGUF`, а `vLLM` оставлен как опциональный backend.

@@ -14,7 +14,10 @@ It answers:
 ## 2) Top-Level Layout
 
 ```
-start.sh                                   — local launcher; refactored: scripts/lib/net.py + build_*_command()
+start.sh                                   — thin local launcher entrypoint; sources scripts/start/*.sh
+scripts/start/helpers.sh                   — shared env/network/system/postgres/process helpers for launcher
+scripts/start/commands.sh                  — service command builders for launcher
+scripts/start/runtime.sh                   — launcher orchestration: args, defaults, preflight, bootstrap, readiness
 scripts/lib/net.py                         — CLI network utils: parse-dsn, tcp-probe, http-probe, llm-probe
 scripts/llama_server_docker.sh             — wrapper: runs ghcr.io/ggml-org/llama.cpp:server via Docker
 scripts/run_llm_stage_check.sh             — E2E LLM smoke: starts stack, POST /api/parse, checks SSE stages

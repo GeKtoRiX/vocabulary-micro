@@ -58,6 +58,8 @@ cp .env.compose.sqlite.example .env.compose.sqlite
 ```
 
 `start.sh` automatically loads `.env`, `.env.local`, and `.env.postgres` when `--postgres` is used.
+The root `start.sh` remains the single local entrypoint, while its implementation is split into
+`scripts/start/helpers.sh`, `scripts/start/commands.sh`, and `scripts/start/runtime.sh` for easier maintenance.
 
 Postgres cutover runtime:
 

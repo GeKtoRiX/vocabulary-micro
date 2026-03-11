@@ -50,6 +50,8 @@ python3 -m pytest -q tests/
 Подробно: [`docs/LLM_PROJECT_MAP.md`](docs/LLM_PROJECT_MAP.md)
 
 ```
+start.sh           — thin launcher entrypoint; подключает scripts/start/*.sh и остаётся единой точкой старта
+scripts/start/     — shell-модули launcher: helpers, command builders, runtime orchestration
 frontend/          — React 19 + Vite 7 SPA
 backend/           — runtime backend: gateway, owner-services, Python capability API
 backend/python_services/core/           — канонический Python domain/use case слой

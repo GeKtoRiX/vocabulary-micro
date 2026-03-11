@@ -20,6 +20,11 @@
 ## Рабочий цикл
 `read -> do -> log -> save`
 
+## Runtime quick reference
+- `start.sh` остаётся единой точкой запуска локального стека.
+- Реализация launcher разнесена по `scripts/start/helpers.sh`, `scripts/start/commands.sh`, `scripts/start/runtime.sh`.
+- При изменениях bootstrap/runtime launcher сначала синхронизировать документацию агента и затем проверять `bash -n` и `./start.sh --print-config`.
+
 ## Маркеры аудита
 ### Policy markers
 - `validation_blocked_high_confidence_trf`

@@ -13,3 +13,8 @@
 - `skills/` как compatibility-layer для исторических импортов `skills.*`
 
 Это позволяет держать агентный implementation-контур собранным в одном месте, не ломая автозагрузку и существующие тесты.
+
+Launcher runtime при этом тоже оставлен совместимым на корневом entrypoint:
+
+- [start.sh](/home/cbandy/vocabulary-main/start.sh) — единая команда запуска
+- `scripts/start/` — модульная реализация launcher (`helpers.sh`, `commands.sh`, `runtime.sh`)
