@@ -21,6 +21,9 @@ env/
 *.sqlite3-shm
 *.sqlite3-wal
 backend/python_services/infrastructure/persistence/data/*.db
+backend/python_services/infrastructure/persistence/data/*.db-shm
+backend/python_services/infrastructure/persistence/data/*.db-wal
+backend/python_services/infrastructure/persistence/data/*.db
 
 # Local model/corpora payloads (large)
 models/

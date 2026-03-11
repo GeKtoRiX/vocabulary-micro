@@ -17,13 +17,12 @@ Current implementation is transitional by design:
 
 - SPA still uses the same `/api` contract
 - gateway is the public entrypoint
-- `lexicon-service` already owns lexicon CRUD, categories, statistics slice, internal index, and `sync-row` over SQLite
-- `assignments-service` now owns assignments CRUD, scan/update/rescan, quick-add suggestions, and assignments statistics over SQLite
+- `lexicon-service` already owns lexicon CRUD, categories, statistics slice, internal index, and `sync-row` over Postgres
+- `assignments-service` now owns assignments CRUD, scan/update/rescan, quick-add suggestions, and assignments statistics over Postgres
 - `nlp-service` is the default parse backend for `/api/parse*` and `/api/system/warmup`
 - `nlp-service` now loads lexicon and MWE state over `lexicon-service` internal APIs instead of reading SQLite directly
 - `export-service` builds Excel exports from `lexicon-service` API snapshots instead of reading SQLite directly
-- `lexicon-service` now supports `LEXICON_STORAGE_BACKEND=sqlite|postgres`; SQLite remains default
-- both owner services also support shared runtime toggles via `OWNER_SERVICES_STORAGE_BACKEND`, `OWNER_SERVICES_POSTGRES_URL`, and `OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE`
+- owner services run on Postgres only and share `OWNER_SERVICES_POSTGRES_URL` defaults
 - routing is controlled with feature flags such as `GATEWAY_PARSE_BACKEND`, `GATEWAY_LEXICON_BACKEND`, `GATEWAY_ASSIGNMENTS_BACKEND`
 
 ## Installation
@@ -41,10 +40,9 @@ Optional local env templates:
 cp .env.example .env
 cp .env.postgres.example .env.postgres
 cp .env.compose.postgres.example .env.compose.postgres
-cp .env.compose.sqlite.example .env.compose.sqlite
 ```
 
-`start.sh` automatically loads `.env`, `.env.local`, and, with `--postgres`, `.env.postgres` / `.env.postgres.local` if present.
+`start.sh` automatically loads `.env`, `.env.local`, `.env.postgres`, and `.env.postgres.local` if present.
 
 ## Run
 
@@ -52,7 +50,7 @@ cp .env.compose.sqlite.example .env.compose.sqlite
 ./start.sh              # gateway + internal services + built SPA
 ./start.sh --build      # build frontend, then start all services
 ./start.sh --dev        # Vite dev server + all backend services
-./start.sh --postgres   # owner services on Postgres + local preloaded docker compose postgres bootstrap for localhost DSN
+./start.sh --postgres   # compatibility alias for the same Postgres-first runtime
 ```
 
 Or directly:
@@ -63,7 +61,7 @@ python3 -m backend.python_services.export_service.main  # internal export capabi
 cd backend/services && npm --workspace @vocabulary/api-gateway run dev
 
 OWNER_SERVICES_POSTGRES_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocabulary \
-./start.sh --postgres
+./start.sh
 ```
 
 Or with an env file:
@@ -71,7 +69,7 @@ Or with an env file:
 ```bash
 cp .env.postgres.example .env.postgres
 bash ./scripts/prepare_docker_runtime.sh
-./start.sh --postgres
+./start.sh
 ```
 
 Docker Compose:
@@ -84,10 +82,10 @@ docker compose --env-file .env.compose.postgres up
 ```
 
 `./scripts/prepare_docker_runtime.sh` pulls `postgres:16` and builds local runtime images
-`vocabulary-python-runtime:local` and `vocabulary-node-runtime:local`. After that, `./start.sh --postgres`
+`vocabulary-python-runtime:local` and `vocabulary-node-runtime:local`. After that, `./start.sh`
 and `docker compose up` use only already prepared local images and do not install/download dependencies on boot.
 
-`./start.sh --postgres` bootstraps the local `postgres` compose service automatically when
+`./start.sh` bootstraps the local `postgres` compose service automatically when
 `OWNER_SERVICES_POSTGRES_URL` points to `127.0.0.1` or `localhost`. Set `START_POSTGRES_VIA_COMPOSE=0`
 if you want to target an already running external Postgres instead.
 
@@ -103,7 +101,6 @@ Or with an env file:
 ```bash
 bash ./scripts/prepare_docker_runtime.sh
 docker compose --env-file .env.compose.postgres up
-docker compose --env-file .env.compose.sqlite up
 ```
 
 ## Architecture
@@ -148,16 +145,9 @@ Environment variables:
 
 | Variable | Description |
 |---|---|
-| `ASSIGNMENTS_DB_PATH` | Path to assignments database |
-| `OWNER_SERVICES_STORAGE_BACKEND` | Shared default backend for owner services: `sqlite` or `postgres` |
 | `OWNER_SERVICES_POSTGRES_URL` | Shared Postgres DSN for owner services |
-| `OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE` | Shared one-time seed of empty Postgres from current SQLite snapshots |
-| `LEXICON_STORAGE_BACKEND` | `sqlite` or `postgres` for `lexicon-service` |
 | `LEXICON_POSTGRES_URL` | Postgres DSN for `lexicon-service` |
-| `LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE` | One-time seed of empty Postgres from current SQLite snapshot |
-| `ASSIGNMENTS_STORAGE_BACKEND` | `sqlite` or `postgres` for `assignments-service` |
 | `ASSIGNMENTS_POSTGRES_URL` | Postgres DSN for `assignments-service` |
-| `ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE` | One-time seed of empty Postgres from current SQLite snapshot |
 | `ASSIGNMENT_COMPLETED_THRESHOLD_PERCENT` | Coverage threshold |
 | `ASSIGNMENT_DIFF_VIEWER_ENABLED` | Enable diff viewer |
 | `ENABLE_SECOND_PASS_WSD` | Enable word-sense disambiguation |
@@ -225,6 +215,6 @@ bash scripts/run_docker_smoke.sh
 
 ## Data Storage
 
-- Lexicon DB: `backend/python_services/infrastructure/persistence/data/lexicon.sqlite3`
-- Assignments DB: `backend/python_services/infrastructure/persistence/data/assignments.db`
+- Owner services persist to Postgres only
+- Default schemas: `lexicon` and `assignments`
 # vocabulary-micro

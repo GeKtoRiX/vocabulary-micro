@@ -38,8 +38,7 @@ Current migration ownership:
 ```bash
 # Full migration slice
 bash ./scripts/prepare_docker_runtime.sh  # one-time pull/build step for preloaded local images
-./start.sh --postgres          # recommended production-like path: gateway + services on Postgres, local postgres auto-bootstrapped
-./start.sh                     # local SQLite fallback path
+./start.sh                     # recommended path: gateway + services on Postgres, local postgres auto-bootstrapped
 ./start.sh --build             # build frontend, then start gateway + services
 ./start.sh --dev               # Vite dev server + gateway + services
 
@@ -54,23 +53,21 @@ Env templates:
 cp .env.example .env
 cp .env.postgres.example .env.postgres
 cp .env.compose.postgres.example .env.compose.postgres
-cp .env.compose.sqlite.example .env.compose.sqlite
 ```
 
-`start.sh` automatically loads `.env`, `.env.local`, and `.env.postgres` when `--postgres` is used.
+`start.sh` automatically loads `.env`, `.env.local`, `.env.postgres`, and `.env.postgres.local`.
 The root `start.sh` remains the single local entrypoint, while its implementation is split into
 `scripts/start/helpers.sh`, `scripts/start/commands.sh`, and `scripts/start/runtime.sh` for easier maintenance.
 
-Postgres cutover runtime:
+Postgres runtime:
 
 ```bash
 cp .env.postgres.example .env.postgres
-./start.sh --postgres
+./start.sh
 ```
 
 Recommended default for migration verification: run `./scripts/prepare_docker_runtime.sh` once,
-then prefer the Postgres-first runtime and use plain `./start.sh` only when you explicitly want
-the SQLite dev fallback. `./start.sh --postgres` ensures local docker compose `postgres` is up
+then use plain `./start.sh`. `./start.sh` ensures local docker compose `postgres` is up
 when the DSN targets `127.0.0.1` / `localhost`, but no image/dependency downloads are expected
 at startup because the prepare step preloads them. Set `START_POSTGRES_VIA_COMPOSE=0` only if you
 intentionally use an external Postgres.
@@ -89,17 +86,9 @@ docker compose up
 docker compose --env-file .env.compose.postgres up
 ```
 
-Explicit Compose SQLite fallback:
-
-```bash
-docker compose --env-file .env.compose.sqlite up
-```
-
 ## 4. Storage and Isolation
 
-- Lexicon DB: `backend/python_services/infrastructure/persistence/data/lexicon.sqlite3`
-- Assignments DB: `backend/python_services/infrastructure/persistence/data/assignments.db`
-- Both owner services support `sqlite|postgres` storage backends via `LEXICON_STORAGE_BACKEND` and `ASSIGNMENTS_STORAGE_BACKEND`
+- Owner-service persistence runs on Postgres only
 - In Postgres mode, owner data is isolated by schema: `LEXICON_POSTGRES_SCHEMA=lexicon` and `ASSIGNMENTS_POSTGRES_SCHEMA=assignments`
 
 Critical invariant:

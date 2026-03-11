@@ -17,7 +17,7 @@
 - NLP-стек: spaCy, spacy-transformers, lemminflect, nltk.
 - Frontend: React + Vite + TypeScript.
 - Service layer: Fastify/TypeScript.
-- Хранилища: SQLite по умолчанию, Postgres как целевой backend для owner-services.
+- Хранилища: owner-services работают на Postgres; SQLite остаётся только во внутренних Python runtime/adapters, где это явно требуется инфраструктуре.
 
 ## Runtime/Services
 - Публичная точка входа migration runtime: `backend/services/api-gateway`.
@@ -39,6 +39,8 @@
 - Проверка инструментов: `python3 -m pytest -q tests/governance/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-11` — Legacy SQLite backend вырезан из owner-services runtime: `loadConfig`, `start.sh`, `docker-compose.yml`, env templates и TypeScript service app factory теперь поддерживают только Postgres для `lexicon-service` и `assignments-service`.
+  Зачем: держать два параллельных owner-storage path (`sqlite` и `postgres`) стало дороже, чем польза от dev-fallback; Postgres уже является целевым и основным runtime, а сохранение legacy toggle усложняло запуск, тесты и документацию.
 - `2026-03-11` — Лимиты long-text third-pass подняты до `4096`: Python pipeline теперь принимает до `4096` входных токенов, а third-pass LLM generation budget тоже увеличен до `4096`.
   Зачем: live проверка на тексте из 10 предложений с idiom/phrasal verb показала, что прежние `2048`/`256` лимиты были узким местом — tokenizer мог резать длинный вход, а в `think_mode=true` Qwen/llama.cpp успевал выдать только начало reasoning и не доходил до parseable payload.
 - `2026-03-11` — На локальном `llama.cpp`/ROCm path для RX 7600 XT live third-pass проверка оказалась чувствительна к ROCm env: c `HSA_OVERRIDE_GFX_VERSION=11.0.0` и `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` сервер поднимается и отвечает, а без них прямой wrapper-запуск падал до обслуживания запросов.

@@ -1,51 +1,68 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildGatewayApp } from '../../../backend/services/api-gateway/src/app.js'
-import { buildAssignmentsServiceApp } from '../../../backend/services/assignments-service/src/app.js'
-import { buildLexiconServiceApp } from '../../../backend/services/lexicon-service/src/app.js'
 
 const tempDirs: string[] = []
 
-function mkTempDb(prefix: string, filename: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
-  tempDirs.push(dir)
-  return path.join(dir, filename)
-}
-
 afterEach(async () => {
+  vi.resetModules()
+  vi.restoreAllMocks()
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true })
   }
-  delete process.env.LEXICON_DB_PATH
-  delete process.env.ASSIGNMENTS_DB_PATH
   delete process.env.GATEWAY_SERVE_STATIC
   delete process.env.GATEWAY_STATIC_DIR
 })
 
+function mockOwnerServiceRepositories() {
+  class MockLexiconRepository {
+    async close() {}
+  }
+
+  class MockAssignmentsRepository {
+    async close() {}
+  }
+
+  vi.doMock('../../../backend/services/lexicon-service/src/postgres_repository.js', () => ({
+    PostgresLexiconRepository: MockLexiconRepository,
+  }))
+  vi.doMock('../../../backend/services/assignments-service/src/postgres_repository.js', () => ({
+    PostgresAssignmentsRepository: MockAssignmentsRepository,
+  }))
+}
+
 describe('service smoke', () => {
   it('lexicon-service health', async () => {
-    process.env.LEXICON_DB_PATH = mkTempDb('lexicon-smoke-', 'lexicon.sqlite3')
+    mockOwnerServiceRepositories()
 
+    const { buildLexiconServiceApp } = await import('../../../backend/services/lexicon-service/src/app.js')
     const app = buildLexiconServiceApp()
     try {
       const result = await app.inject({ method: 'GET', url: '/health' })
       expect(result.statusCode).toBe(200)
-      expect(result.json().status).toBe('ok')
+      expect(result.json()).toEqual({
+        status: 'ok',
+        storage_backend: 'postgres',
+      })
     } finally {
       await app.close()
     }
   })
 
   it('assignments-service health', async () => {
-    process.env.ASSIGNMENTS_DB_PATH = mkTempDb('assignments-smoke-', 'assignments.db')
+    mockOwnerServiceRepositories()
 
+    const { buildAssignmentsServiceApp } = await import('../../../backend/services/assignments-service/src/app.js')
     const app = buildAssignmentsServiceApp()
     try {
       const result = await app.inject({ method: 'GET', url: '/health' })
       expect(result.statusCode).toBe(200)
-      expect(result.json().status).toBe('ok')
+      expect(result.json()).toEqual({
+        status: 'ok',
+        storage_backend: 'postgres',
+      })
     } finally {
       await app.close()
     }

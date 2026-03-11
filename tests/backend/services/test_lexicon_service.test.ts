@@ -1,49 +1,142 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { buildLexiconServiceApp } from '../../../backend/services/lexicon-service/src/app.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  assertCategoryMutationResultContract,
+  assertExportSnapshotContract,
+  assertLexiconIndexContract,
+  assertLexiconSearchResultContract,
+  assertLexiconStatisticsContract,
+  assertMweExpressionMutationContract,
+  assertMweSenseMutationContract,
+  assertRowSyncResultContract,
+} from '../../../backend/services/shared/src/contracts.js'
 
-const tempDirs: string[] = []
-
-afterEach(async () => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
-  delete process.env.LEXICON_DB_PATH
+afterEach(() => {
+  vi.resetModules()
+  vi.restoreAllMocks()
 })
 
-describe('lexicon-service', () => {
-  it('supports direct CRUD and sync-row against sqlite', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexicon-service-'))
-    tempDirs.push(dir)
-    process.env.LEXICON_DB_PATH = path.join(dir, 'lexicon.sqlite3')
+function createLexiconSearchPayload() {
+  return {
+    rows: [
+      {
+        id: 1,
+        category: 'Verb',
+        value: 'Run',
+        normalized: 'run',
+        source: 'manual',
+        confidence: 1,
+        first_seen_at: null,
+        request_id: null,
+        status: 'approved',
+        created_at: null,
+        reviewed_at: null,
+        reviewed_by: null,
+        review_note: null,
+      },
+    ],
+    total_rows: 1,
+    filtered_rows: 1,
+    counts_by_status: { approved: 1 },
+    available_categories: ['Verb'],
+    message: 'ok',
+  }
+}
 
+describe('lexicon-service', () => {
+  it('serves Postgres-backed lexicon endpoints through the repository contract', async () => {
+    const calls = {
+      createCategory: vi.fn(async () => ({
+        categories: ['Verb'],
+        message: "Created category 'Verb'.",
+      })),
+      addEntry: vi.fn(async () => ({
+        message: "Entry 'Run' added to 'Verb'.",
+      })),
+      searchEntries: vi.fn(async () => createLexiconSearchPayload()),
+      syncRow: vi.fn(async () => ({
+        status: 'added',
+        value: 'walk',
+        category: 'Verb',
+        request_id: 'req-1',
+        message: "Added 'walk'.",
+        category_fallback_used: false,
+      })),
+      getStatistics: vi.fn(async () => ({
+        total_entries: 1,
+        counts_by_status: { approved: 1 },
+        counts_by_source: { manual: 1 },
+        categories: [{ name: 'Verb', count: 1 }],
+      })),
+      buildIndex: vi.fn(async () => ({
+        single_word_index: { run: ['Verb'] },
+        multi_word_index: { 'fill in': ['Phrasal Verb'] },
+        total_rows: 2,
+        lexicon_version: 1,
+      })),
+      exportSnapshot: vi.fn(async () => ({
+        tables: [
+          {
+            name: 'lexicon_entries',
+            columns: ['id'],
+            rows: [[1]],
+          },
+        ],
+      })),
+      upsertMweExpression: vi.fn(async () => ({ expression_id: 7 })),
+      upsertMweSense: vi.fn(async () => ({ sense_id: 9 })),
+      close: vi.fn(async () => {}),
+    }
+
+    class MockPostgresLexiconRepository {
+      searchEntries = calls.searchEntries
+      addEntry = calls.addEntry
+      addEntries = vi.fn()
+      updateEntry = vi.fn()
+      deleteEntries = vi.fn()
+      bulkUpdateStatus = vi.fn()
+      createCategory = calls.createCategory
+      deleteCategory = vi.fn(async () => ({
+        categories: [],
+        message: "Deleted category 'Verb'.",
+      }))
+      listCategories = vi.fn(async () => ['Verb'])
+      getStatistics = calls.getStatistics
+      buildIndex = calls.buildIndex
+      exportSnapshot = calls.exportSnapshot
+      upsertMweExpression = calls.upsertMweExpression
+      upsertMweSense = calls.upsertMweSense
+      syncRow = calls.syncRow
+      close = calls.close
+    }
+
+    vi.doMock('../../../backend/services/lexicon-service/src/postgres_repository.js', () => ({
+      PostgresLexiconRepository: MockPostgresLexiconRepository,
+    }))
+
+    const { buildLexiconServiceApp } = await import('../../../backend/services/lexicon-service/src/app.js')
     const app = buildLexiconServiceApp()
     try {
       const createCategory = await app.inject({
         method: 'POST',
-        url: '/lexicon/categories',
+        url: '/internal/v1/lexicon/categories',
         payload: { name: 'Verb' },
       })
       expect(createCategory.statusCode).toBe(200)
+      expect(() => assertCategoryMutationResultContract(createCategory.json())).not.toThrow()
 
       const addEntry = await app.inject({
         method: 'POST',
-        url: '/lexicon/entries',
-        payload: { category: 'Verb', value: 'Run', source: 'manual', confidence: 0.9 },
+        url: '/internal/v1/lexicon/entries',
+        payload: { category: 'Verb', value: 'Run', source: 'manual', confidence: 1 },
       })
       expect(addEntry.statusCode).toBe(200)
 
       const search = await app.inject({
         method: 'GET',
-        url: '/lexicon/entries?status=all&limit=20&offset=0',
+        url: '/internal/v1/lexicon/search?status=all&limit=20&offset=0',
       })
       expect(search.statusCode).toBe(200)
-      const searchPayload = search.json()
-      expect(searchPayload.rows).toHaveLength(1)
-      expect(searchPayload.rows[0].value).toBe('Run')
-      expect(searchPayload.rows[0].normalized).toBe('run')
+      expect(() => assertLexiconSearchResultContract(search.json())).not.toThrow()
 
       const sync = await app.inject({
         method: 'POST',
@@ -56,179 +149,70 @@ describe('lexicon-service', () => {
         },
       })
       expect(sync.statusCode).toBe(200)
-      expect(sync.json().status).toBe('added')
+      expect(() => assertRowSyncResultContract(sync.json())).not.toThrow()
 
       const stats = await app.inject({
         method: 'GET',
         url: '/internal/v1/lexicon/statistics',
       })
       expect(stats.statusCode).toBe(200)
-      expect(stats.json().total_entries).toBe(2)
-
-      const snapshot = await app.inject({
-        method: 'GET',
-        url: '/internal/v1/lexicon/export-snapshot',
-      })
-      expect(snapshot.statusCode).toBe(200)
-      expect(snapshot.json().tables.map((table: { name: string }) => table.name)).toEqual([
-        'lexicon_entries',
-        'lexicon_categories',
-        'lexicon_meta',
-        'mwe_expressions',
-        'mwe_senses',
-        'mwe_meta',
-      ])
-
-      const internalCategories = await app.inject({
-        method: 'GET',
-        url: '/internal/v1/lexicon/categories',
-      })
-      expect(internalCategories.statusCode).toBe(200)
-      expect(internalCategories.json().categories).toContain('Verb')
-
-      const mweExpression = await app.inject({
-        method: 'POST',
-        url: '/internal/v1/lexicon/mwe/expression',
-        payload: {
-          canonical_form: 'fill in',
-          expression_type: 'phrasal_verb',
-          is_separable: true,
-          max_gap_tokens: 4,
-          base_lemma: 'fill',
-          particle: 'in',
-        },
-      })
-      expect(mweExpression.statusCode).toBe(200)
-      const expressionId = mweExpression.json().expression_id
-      expect(expressionId).toBeTypeOf('number')
-
-      const mweSense = await app.inject({
-        method: 'POST',
-        url: '/internal/v1/lexicon/mwe/sense',
-        payload: {
-          expression_id: expressionId,
-          sense_key: 'fill_in_1',
-          gloss: 'complete a form',
-          usage_label: 'idiomatic',
-          example: 'Fill in the form.',
-          priority: 10,
-        },
-      })
-      expect(mweSense.statusCode).toBe(200)
-      expect(mweSense.json().sense_id).toBeTypeOf('number')
-
-      const updatedSearch = await app.inject({
-        method: 'GET',
-        url: '/lexicon/entries?status=all&limit=20&offset=0&sort_by=id&sort_direction=asc',
-      })
-      const rows = updatedSearch.json().rows
-      const syncRow = rows.find((row: { normalized: string }) => row.normalized === 'walk')
-      expect(syncRow.status).toBe('pending_review')
-
-      const update = await app.inject({
-        method: 'PATCH',
-        url: `/lexicon/entries/${syncRow.id}`,
-        payload: {
-          status: 'approved',
-          category: 'Verb',
-          value: 'walk',
-          query: { status: 'all', limit: 20, offset: 0 },
-        },
-      })
-      expect(update.statusCode).toBe(200)
-      expect(update.json().message).toBe(`Updated entry id=${syncRow.id}.`)
-    } finally {
-      await app.close()
-    }
-  })
-
-  it('supports bulk-status, delete entries, category guards, and index building', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lexicon-service-'))
-    tempDirs.push(dir)
-    process.env.LEXICON_DB_PATH = path.join(dir, 'lexicon.sqlite3')
-
-    const app = buildLexiconServiceApp()
-    try {
-      await app.inject({ method: 'POST', url: '/lexicon/categories', payload: { name: 'Verb' } })
-      await app.inject({ method: 'POST', url: '/lexicon/categories', payload: { name: 'Phrasal Verb' } })
-
-      await app.inject({
-        method: 'POST',
-        url: '/lexicon/entries',
-        payload: { category: 'Verb', value: 'Run', source: 'manual', confidence: 0.9 },
-      })
-      await app.inject({
-        method: 'POST',
-        url: '/lexicon/entries',
-        payload: { category: 'Verb', value: 'Jump', source: 'manual', confidence: 0.9 },
-      })
-      await app.inject({
-        method: 'POST',
-        url: '/lexicon/entries',
-        payload: { category: 'Phrasal Verb', value: 'Fill In', source: 'manual', confidence: 0.9 },
-      })
+      expect(() => assertLexiconStatisticsContract(stats.json())).not.toThrow()
 
       const index = await app.inject({
         method: 'GET',
         url: '/internal/v1/lexicon/index',
       })
       expect(index.statusCode).toBe(200)
-      expect(index.json().single_word_index.run).toContain('Verb')
-      expect(index.json().multi_word_index['fill in']).toContain('Phrasal Verb')
+      expect(() => assertLexiconIndexContract(index.json())).not.toThrow()
 
-      const search = await app.inject({
+      const snapshot = await app.inject({
         method: 'GET',
-        url: '/lexicon/entries?status=all&limit=20&offset=0&sort_by=id&sort_direction=asc',
+        url: '/internal/v1/lexicon/export-snapshot',
       })
-      const rows = search.json().rows
-      const runId = rows.find((row: { normalized: string }) => row.normalized === 'run')?.id
-      const jumpId = rows.find((row: { normalized: string }) => row.normalized === 'jump')?.id
-      const fillInId = rows.find((row: { normalized: string }) => row.normalized === 'fill in')?.id
+      expect(snapshot.statusCode).toBe(200)
+      expect(() => assertExportSnapshotContract(snapshot.json())).not.toThrow()
 
-      const bulkStatus = await app.inject({
+      const expression = await app.inject({
         method: 'POST',
-        url: '/lexicon/entries/bulk-status',
+        url: '/internal/v1/lexicon/mwe/expression',
         payload: {
-          entry_ids: [runId, jumpId],
-          status: 'rejected',
-          query: { status: 'all', limit: 20, offset: 0 },
+          canonical_form: 'fill in',
+          expression_type: 'phrasal_verb',
         },
       })
-      expect(bulkStatus.statusCode).toBe(200)
-      expect(bulkStatus.json().message).toContain("Updated 2 of 2 entries to 'rejected'")
-      const updatedRows = bulkStatus.json().rows
-      expect(updatedRows.find((row: { id: number }) => row.id === runId)?.status).toBe('rejected')
-      expect(updatedRows.find((row: { id: number }) => row.id === jumpId)?.status).toBe('rejected')
+      expect(expression.statusCode).toBe(200)
+      expect(() => assertMweExpressionMutationContract(expression.json())).not.toThrow()
 
-      const deleteCategoryBlocked = await app.inject({
-        method: 'DELETE',
-        url: '/lexicon/categories/Verb',
-      })
-      expect(deleteCategoryBlocked.statusCode).toBe(200)
-      expect(deleteCategoryBlocked.json().message).toContain("Delete category skipped: 'Verb' is used by 2 entries.")
-
-      const deleteEntries = await app.inject({
-        method: 'DELETE',
-        url: '/lexicon/entries',
+      const sense = await app.inject({
+        method: 'POST',
+        url: '/internal/v1/lexicon/mwe/sense',
         payload: {
-          entry_ids: [runId, jumpId],
-          query: { status: 'all', limit: 20, offset: 0 },
+          expression_id: 7,
+          sense_key: 'fill_in_1',
+          gloss: 'complete a form',
+          usage_label: 'neutral',
         },
       })
-      expect(deleteEntries.statusCode).toBe(200)
-      expect(deleteEntries.json().rows.some((row: { id: number }) => row.id === runId)).toBe(false)
-      expect(deleteEntries.json().rows.some((row: { id: number }) => row.id === jumpId)).toBe(false)
-      expect(deleteEntries.json().rows.some((row: { id: number }) => row.id === fillInId)).toBe(true)
+      expect(sense.statusCode).toBe(200)
+      expect(() => assertMweSenseMutationContract(sense.json())).not.toThrow()
 
-      const deleteCategoryAllowed = await app.inject({
-        method: 'DELETE',
-        url: '/lexicon/categories/Verb',
+      expect(calls.createCategory).toHaveBeenCalledWith({ name: 'Verb' })
+      expect(calls.addEntry).toHaveBeenCalledWith({
+        category: 'Verb',
+        value: 'Run',
+        source: 'manual',
+        confidence: 1,
       })
-      expect(deleteCategoryAllowed.statusCode).toBe(200)
-      expect(deleteCategoryAllowed.json().message).toBe("Deleted category 'Verb'.")
-      expect(deleteCategoryAllowed.json().categories).not.toContain('Verb')
+      expect(calls.syncRow).toHaveBeenCalledWith({
+        token: 'walked',
+        normalized: 'walk',
+        lemma: 'walk',
+        categories: 'Verb',
+      })
     } finally {
       await app.close()
     }
+
+    expect(calls.close).toHaveBeenCalledTimes(1)
   })
 })

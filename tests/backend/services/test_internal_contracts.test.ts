@@ -1,6 +1,3 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assertAssignmentScanResultContract,
@@ -14,24 +11,11 @@ import {
   assertRowSyncResultContract,
   assertWarmupStatusContract,
 } from '../../../backend/services/shared/src/contracts.js'
-import { buildAssignmentsServiceApp } from '../../../backend/services/assignments-service/src/app.js'
-import { buildLexiconServiceApp } from '../../../backend/services/lexicon-service/src/app.js'
-
-const tempDirs: string[] = []
-
-function mkTempDb(prefix: string, filename: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
-  tempDirs.push(dir)
-  return path.join(dir, filename)
-}
 
 afterEach(() => {
+  vi.resetModules()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
-  delete process.env.LEXICON_DB_PATH
-  delete process.env.ASSIGNMENTS_DB_PATH
   delete process.env.LEXICON_SERVICE_HOST
   delete process.env.LEXICON_SERVICE_PORT
   delete process.env.NLP_SERVICE_HOST
@@ -47,8 +31,119 @@ function jsonResponse(payload: unknown): Response {
 
 describe('internal contract validators', () => {
   it('validate lexicon-service internal payloads', async () => {
-    process.env.LEXICON_DB_PATH = mkTempDb('lexicon-contract-', 'lexicon.sqlite3')
+    class MockPostgresLexiconRepository {
+      async searchEntries() {
+        return {
+          rows: [
+            {
+              id: 1,
+              category: 'Verb',
+              value: 'Run',
+              normalized: 'run',
+              source: 'manual',
+              confidence: 1,
+              first_seen_at: null,
+              request_id: null,
+              status: 'approved',
+              created_at: null,
+              reviewed_at: null,
+              reviewed_by: null,
+              review_note: null,
+            },
+          ],
+          total_rows: 1,
+          filtered_rows: 1,
+          counts_by_status: { approved: 1 },
+          available_categories: ['Verb'],
+          message: 'ok',
+        }
+      }
 
+      async addEntry() {
+        return { message: 'ok' }
+      }
+
+      async updateEntry() {
+        return { message: 'ok' }
+      }
+
+      async deleteEntries() {
+        return { rows: [], message: 'ok' }
+      }
+
+      async bulkUpdateStatus() {
+        return { rows: [], message: 'ok' }
+      }
+
+      async createCategory() {
+        return { categories: ['Verb', 'Noun'], message: 'ok' }
+      }
+
+      async deleteCategory() {
+        return { categories: ['Verb'], message: 'ok' }
+      }
+
+      async listCategories() {
+        return ['Verb', 'Noun']
+      }
+
+      async syncRow() {
+        return {
+          status: 'added',
+          value: 'walk',
+          category: 'Verb',
+          request_id: 'req-1',
+          message: 'ok',
+          category_fallback_used: false,
+        }
+      }
+
+      async getStatistics() {
+        return {
+          total_entries: 1,
+          counts_by_status: { approved: 1 },
+          counts_by_source: { manual: 1 },
+          categories: [{ name: 'Verb', count: 1 }],
+        }
+      }
+
+      async buildIndex() {
+        return {
+          single_word_index: { run: ['Verb'] },
+          multi_word_index: { 'fill in': ['Phrasal Verb'] },
+          total_rows: 2,
+          lexicon_version: 1,
+        }
+      }
+
+      async exportSnapshot() {
+        return {
+          tables: [
+            { name: 'lexicon_entries', columns: ['id'], rows: [[1]] },
+          ],
+        }
+      }
+
+      async upsertMweExpression() {
+        return { expression_id: 1 }
+      }
+
+      async upsertMweSense() {
+        return { sense_id: 1 }
+      }
+
+      async addEntries() {
+        return { inserted_count: 1, message: 'ok' }
+      }
+
+      async close() {}
+    }
+
+    vi.doMock('../../../backend/services/lexicon-service/src/postgres_repository.js', () => ({
+      PostgresLexiconRepository: MockPostgresLexiconRepository,
+    }))
+
+    const { buildLexiconServiceApp } = await import('../../../backend/services/lexicon-service/src/app.js')
     const app = buildLexiconServiceApp()
     try {
       await app.inject({ method: 'POST', url: '/internal/v1/lexicon/categories', payload: { name: 'Verb' } })
@@ -59,8 +154,7 @@ describe('internal contract validators', () => {
       })
 
       const search = await app.inject({ method: 'GET', url: '/internal/v1/lexicon/search?status=all&limit=20&offset=0' })
-      const searchPayload = search.json()
-      expect(() => assertLexiconSearchResultContract(searchPayload)).not.toThrow()
+      expect(() => assertLexiconSearchResultContract(search.json())).not.toThrow()
 
       const sync = await app.inject({
         method: 'POST',
@@ -86,11 +180,63 @@ describe('internal contract validators', () => {
   })
 
   it('validate assignments-service internal payloads', async () => {
-    process.env.ASSIGNMENTS_DB_PATH = mkTempDb('assignments-contract-', 'assignments.db')
     process.env.LEXICON_SERVICE_HOST = 'lexicon-service'
     process.env.LEXICON_SERVICE_PORT = '4011'
     process.env.NLP_SERVICE_HOST = 'nlp-service'
     process.env.NLP_SERVICE_PORT = '8767'
+
+    class MockPostgresAssignmentsRepository {
+      async createUnit() {
+        throw new Error('not used')
+      }
+
+      async listAssignments() {
+        return []
+      }
+
+      async getAssignmentById() {
+        return null
+      }
+
+      async getAssignmentsByIds() {
+        return []
+      }
+
+      async updateAssignment() {
+        return null
+      }
+
+      async deleteAssignment() {
+        return false
+      }
+
+      async bulkDelete() {
+        return { deleted: [], not_found: [] }
+      }
+
+      async getAssignmentsStatistics() {
+        return {
+          units: [],
+          total_units: 0,
+          total_subunits: 0,
+          average_subunits_per_unit: null,
+        }
+      }
+
+      async exportSnapshot() {
+        return { tables: [] }
+      }
+
+      async isEmpty() {
+        return true
+      }
+
+      async close() {}
+    }
+
+    vi.doMock('../../../backend/services/assignments-service/src/postgres_repository.js', () => ({
+      PostgresAssignmentsRepository: MockPostgresAssignmentsRepository,
+    }))
 
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       const url = String(input)
@@ -126,6 +272,7 @@ describe('internal contract validators', () => {
       throw new Error(`Unexpected fetch: ${url}`)
     }))
 
+    const { buildAssignmentsServiceApp } = await import('../../../backend/services/assignments-service/src/app.js')
     const app = buildAssignmentsServiceApp()
     try {
       const scan = await app.inject({

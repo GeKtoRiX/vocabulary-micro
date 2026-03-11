@@ -13,7 +13,6 @@ import {
   requestJson,
 } from '@vocabulary/shared'
 import { PostgresAssignmentsRepository } from './postgres_repository.js'
-import { AssignmentsRepository } from './repository.js'
 import { extractSentence, scanAssignment, suggestQuickAddCategory, type LexiconSearchRow } from './scanner.js'
 import type { AssignmentsStore } from './storage.js'
 
@@ -243,86 +242,10 @@ async function fetchAllLexiconRows(config: ReturnType<typeof loadConfig>): Promi
 }
 
 function createAssignmentsRepository(config: ReturnType<typeof loadConfig>): AssignmentsStore {
-  if (config.assignmentsService.storageBackend !== 'postgres') {
-    return new AssignmentsRepository(config.assignmentsDbPath)
-  }
-
-  const repository = new PostgresAssignmentsRepository(
+  return new PostgresAssignmentsRepository(
     config.assignmentsService.postgresUrl,
     config.assignmentsService.schemaName,
   )
-  if (!config.assignmentsService.bootstrapFromSqlite) {
-    return repository
-  }
-
-  let bootstrapPromise: Promise<void> | null = null
-  const bootstrapIfNeeded = async () => {
-    if (bootstrapPromise) {
-      await bootstrapPromise
-      return
-    }
-    bootstrapPromise = (async () => {
-      if (!(await repository.isEmpty())) {
-        return
-      }
-      const sqliteRepository = new AssignmentsRepository(config.assignmentsDbPath)
-      try {
-        await repository.importSnapshot(sqliteRepository.exportSnapshot())
-      } finally {
-        sqliteRepository.close()
-      }
-    })().catch((error) => {
-      bootstrapPromise = null
-      throw error
-    })
-    await bootstrapPromise
-  }
-
-  return {
-    async createUnit(input) {
-      await bootstrapIfNeeded()
-      return repository.createUnit(input)
-    },
-    async listAssignments(limit, offset) {
-      await bootstrapIfNeeded()
-      return repository.listAssignments(limit, offset)
-    },
-    async getAssignmentById(id) {
-      await bootstrapIfNeeded()
-      return repository.getAssignmentById(id)
-    },
-    async getAssignmentsByIds(ids) {
-      await bootstrapIfNeeded()
-      return repository.getAssignmentsByIds(ids)
-    },
-    async updateAssignment(input) {
-      await bootstrapIfNeeded()
-      return repository.updateAssignment(input)
-    },
-    async deleteAssignment(id) {
-      await bootstrapIfNeeded()
-      return repository.deleteAssignment(id)
-    },
-    async bulkDelete(ids) {
-      await bootstrapIfNeeded()
-      return repository.bulkDelete(ids)
-    },
-    async getAssignmentsStatistics() {
-      await bootstrapIfNeeded()
-      return repository.getAssignmentsStatistics()
-    },
-    async exportSnapshot() {
-      await bootstrapIfNeeded()
-      return repository.exportSnapshot()
-    },
-    async isEmpty() {
-      await bootstrapIfNeeded()
-      return repository.isEmpty()
-    },
-    async close() {
-      await repository.close()
-    },
-  }
 }
 
 async function quickAddMissingWord(

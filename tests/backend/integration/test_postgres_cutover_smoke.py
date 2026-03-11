@@ -229,9 +229,7 @@ def _running_host_stack(
 
         env = os.environ.copy()
         env.update({
-            "OWNER_SERVICES_STORAGE_BACKEND": "postgres",
             "OWNER_SERVICES_POSTGRES_URL": f"postgresql://postgres:postgres@127.0.0.1:{postgres_port}/vocabulary",
-            "OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE": "1",
             "BERT_DEVICE": "cpu",
         })
         if env_overrides:
@@ -239,7 +237,7 @@ def _running_host_stack(
 
         with log_path.open("wb") as log_file:
             process = subprocess.Popen(
-                ["bash", "-lc", "./start.sh --postgres"],
+                ["bash", "-lc", "./start.sh"],
                 cwd=PROJECT_ROOT,
                 env=env,
                 stdout=log_file,

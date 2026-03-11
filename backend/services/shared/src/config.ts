@@ -30,8 +30,6 @@ export interface HttpServiceConfig {
 
 export interface SharedServiceConfig {
   legacyBaseUrl: string
-  lexiconDbPath: string
-  assignmentsDbPath: string
   gateway: HttpServiceConfig & {
     serveStatic: boolean
     staticDir: string
@@ -42,15 +40,13 @@ export interface SharedServiceConfig {
     exportBackend: 'service' | 'legacy'
   }
   lexiconService: HttpServiceConfig & {
-    storageBackend: 'sqlite' | 'postgres'
+    storageBackend: 'postgres'
     postgresUrl: string
-    bootstrapFromSqlite: boolean
     schemaName: string
   }
   assignmentsService: HttpServiceConfig & {
-    storageBackend: 'sqlite' | 'postgres'
+    storageBackend: 'postgres'
     postgresUrl: string
-    bootstrapFromSqlite: boolean
     schemaName: string
   }
   nlpService: HttpServiceConfig
@@ -60,13 +56,9 @@ export interface SharedServiceConfig {
 export function loadConfig(): SharedServiceConfig {
   const cwd = process.cwd()
   const projectRoot = detectProjectRoot(cwd)
-  const ownerServicesStorageBackend = env('OWNER_SERVICES_STORAGE_BACKEND', 'sqlite') as 'sqlite' | 'postgres'
   const ownerServicesPostgresUrl = env('OWNER_SERVICES_POSTGRES_URL', 'postgresql://postgres:postgres@127.0.0.1:5432/vocabulary')
-  const ownerServicesBootstrapFromSqlite = envBool('OWNER_SERVICES_POSTGRES_BOOTSTRAP_FROM_SQLITE', false)
   return {
     legacyBaseUrl: env('LEGACY_BACKEND_BASE_URL', 'http://127.0.0.1:8766'),
-    lexiconDbPath: env('LEXICON_DB_PATH', path.join(projectRoot, 'backend', 'python_services', 'infrastructure', 'persistence', 'data', 'lexicon.sqlite3')),
-    assignmentsDbPath: env('ASSIGNMENTS_DB_PATH', path.join(projectRoot, 'backend', 'python_services', 'infrastructure', 'persistence', 'data', 'assignments.db')),
     gateway: {
       host: env('GATEWAY_HOST', '127.0.0.1'),
       port: envInt('GATEWAY_PORT', 8765),
@@ -81,17 +73,15 @@ export function loadConfig(): SharedServiceConfig {
     lexiconService: {
       host: env('LEXICON_SERVICE_HOST', '127.0.0.1'),
       port: envInt('LEXICON_SERVICE_PORT', 4011),
-      storageBackend: env('LEXICON_STORAGE_BACKEND', ownerServicesStorageBackend) as 'sqlite' | 'postgres',
+      storageBackend: 'postgres',
       postgresUrl: env('LEXICON_POSTGRES_URL', ownerServicesPostgresUrl),
-      bootstrapFromSqlite: envBool('LEXICON_POSTGRES_BOOTSTRAP_FROM_SQLITE', ownerServicesBootstrapFromSqlite),
       schemaName: env('LEXICON_POSTGRES_SCHEMA', 'lexicon'),
     },
     assignmentsService: {
       host: env('ASSIGNMENTS_SERVICE_HOST', '127.0.0.1'),
       port: envInt('ASSIGNMENTS_SERVICE_PORT', 4012),
-      storageBackend: env('ASSIGNMENTS_STORAGE_BACKEND', ownerServicesStorageBackend) as 'sqlite' | 'postgres',
+      storageBackend: 'postgres',
       postgresUrl: env('ASSIGNMENTS_POSTGRES_URL', ownerServicesPostgresUrl),
-      bootstrapFromSqlite: envBool('ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE', ownerServicesBootstrapFromSqlite),
       schemaName: env('ASSIGNMENTS_POSTGRES_SCHEMA', 'assignments'),
     },
     nlpService: {

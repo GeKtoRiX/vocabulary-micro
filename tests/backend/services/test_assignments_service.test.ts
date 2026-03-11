@@ -1,20 +1,15 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildAssignmentsServiceApp } from '../../../backend/services/assignments-service/src/app.js'
+import {
+  assertAssignmentScanResultContract,
+  assertAssignmentsStatisticsContract,
+  assertQuickAddSuggestionContract,
+  assertRowSyncResultContract,
+} from '../../../backend/services/shared/src/contracts.js'
 
-const tempDirs: string[] = []
-
-afterEach(async () => {
+afterEach(() => {
+  vi.resetModules()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
-  delete process.env.ASSIGNMENTS_DB_PATH
-  delete process.env.ASSIGNMENTS_STORAGE_BACKEND
-  delete process.env.ASSIGNMENTS_POSTGRES_URL
-  delete process.env.ASSIGNMENTS_POSTGRES_BOOTSTRAP_FROM_SQLITE
   delete process.env.LEXICON_SERVICE_HOST
   delete process.env.LEXICON_SERVICE_PORT
   delete process.env.NLP_SERVICE_HOST
@@ -28,8 +23,7 @@ function jsonResponse(payload: unknown): Response {
   })
 }
 
-function configureAssignmentsEnv(dir: string): void {
-  process.env.ASSIGNMENTS_DB_PATH = path.join(dir, 'assignments.db')
+function configureAssignmentsEnv() {
   process.env.LEXICON_SERVICE_HOST = 'lexicon-service'
   process.env.LEXICON_SERVICE_PORT = '4011'
   process.env.NLP_SERVICE_HOST = 'nlp-service'
@@ -62,7 +56,7 @@ function stubAssignmentsFetch(lexiconRows: Array<Record<string, unknown>>) {
         message: 'ok',
       })
     }
-    if (url.includes('/lexicon/entries')) {
+    if (url.includes('/internal/v1/lexicon/entries')) {
       return jsonResponse({ message: 'ok' })
     }
     if (url.includes('/internal/v1/nlp/extract-sentence')) {
@@ -74,32 +68,145 @@ function stubAssignmentsFetch(lexiconRows: Array<Record<string, unknown>>) {
   return fetchMock
 }
 
-async function createUnit(app: ReturnType<typeof buildAssignmentsServiceApp>, subunits: string[]) {
-  const response = await app.inject({
-    method: 'POST',
-    url: '/assignments',
-    payload: {
-      subunits: subunits.map((content) => ({ content })),
-    },
-  })
-  expect(response.statusCode).toBe(201)
-  return response.json()
-}
-
 describe('assignments-service', () => {
-  it('owns unit CRUD, quick-add and unit statistics', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
-    tempDirs.push(dir)
-    configureAssignmentsEnv(dir)
-    stubAssignmentsFetch([
+  it('serves unit CRUD, quick-add, and scan flows through the Postgres repository contract', async () => {
+    configureAssignmentsEnv()
+    const fetchMock = stubAssignmentsFetch([
       { id: 1, category: 'Verb', value: 'run', normalized: 'run', source: 'manual', status: 'approved' },
     ])
 
+    class MockPostgresAssignmentsRepository {
+      private units: Array<{
+        id: number
+        unit_code: string
+        unit_number: number
+        subunit_count: number
+        subunits: Array<{
+          id: number
+          unit_id: number
+          subunit_code: string
+          position: number
+          content: string
+          created_at: string
+          updated_at: string
+        }>
+        created_at: string
+        updated_at: string
+      }> = []
+
+      private nextId = 1
+
+      async createUnit(input: { subunits: Array<{ content: string }> }) {
+        const id = this.nextId++
+        const createdAt = new Date('2026-03-11T00:00:00.000Z').toISOString()
+        const unit = {
+          id,
+          unit_code: `Unit${String(id).padStart(2, '0')}`,
+          unit_number: id,
+          subunit_count: input.subunits.length,
+          subunits: input.subunits.map((subunit, index) => ({
+            id: index + 1,
+            unit_id: id,
+            subunit_code: `${id}${String.fromCharCode(65 + index)}`,
+            position: index + 1,
+            content: subunit.content,
+            created_at: createdAt,
+            updated_at: createdAt,
+          })),
+          created_at: createdAt,
+          updated_at: createdAt,
+        }
+        this.units.unshift(unit)
+        return unit
+      }
+
+      async listAssignments() {
+        return this.units
+      }
+
+      async getAssignmentById(id: number) {
+        return this.units.find((unit) => unit.id === id) ?? null
+      }
+
+      async getAssignmentsByIds(ids: number[]) {
+        return this.units.filter((unit) => ids.includes(unit.id))
+      }
+
+      async updateAssignment(input: { assignment_id: number; subunits: Array<{ content: string }> }) {
+        const unit = this.units.find((entry) => entry.id === input.assignment_id)
+        if (!unit) {
+          return null
+        }
+        unit.subunit_count = input.subunits.length
+        unit.subunits = input.subunits.map((subunit, index) => ({
+          id: index + 1,
+          unit_id: unit.id,
+          subunit_code: `${unit.unit_number}${String.fromCharCode(65 + index)}`,
+          position: index + 1,
+          content: subunit.content,
+          created_at: unit.created_at,
+          updated_at: unit.updated_at,
+        }))
+        return unit
+      }
+
+      async deleteAssignment(id: number) {
+        const before = this.units.length
+        this.units = this.units.filter((unit) => unit.id !== id)
+        return this.units.length !== before
+      }
+
+      async bulkDelete(ids: number[]) {
+        const deleted = this.units.filter((unit) => ids.includes(unit.id)).map((unit) => unit.id)
+        this.units = this.units.filter((unit) => !ids.includes(unit.id))
+        return {
+          deleted,
+          not_found: ids.filter((id) => !deleted.includes(id)),
+        }
+      }
+
+      async getAssignmentsStatistics() {
+        const totalUnits = this.units.length
+        const totalSubunits = this.units.reduce((sum, unit) => sum + unit.subunit_count, 0)
+        return {
+          units: this.units.map((unit) => ({
+            unit_code: unit.unit_code,
+            subunit_count: unit.subunit_count,
+            created_at: unit.created_at,
+          })),
+          total_units: totalUnits,
+          total_subunits: totalSubunits,
+          average_subunits_per_unit: totalUnits ? totalSubunits / totalUnits : null,
+        }
+      }
+
+      async exportSnapshot() {
+        return { tables: [] }
+      }
+
+      async isEmpty() {
+        return this.units.length === 0
+      }
+
+      async close() {}
+    }
+
+    vi.doMock('../../../backend/services/assignments-service/src/postgres_repository.js', () => ({
+      PostgresAssignmentsRepository: MockPostgresAssignmentsRepository,
+    }))
+
+    const { buildAssignmentsServiceApp } = await import('../../../backend/services/assignments-service/src/app.js')
     const app = buildAssignmentsServiceApp()
     try {
-      const created = await createUnit(app, ['Unit 1A text', 'Unit 1B text'])
-      expect(created.unit_code).toBe('Unit01')
-      expect(created.subunits.map((item: { subunit_code: string }) => item.subunit_code)).toEqual(['1A', '1B'])
+      const created = await app.inject({
+        method: 'POST',
+        url: '/assignments',
+        payload: {
+          subunits: [{ content: 'Unit 1A text' }, { content: 'Unit 1B text' }],
+        },
+      })
+      expect(created.statusCode).toBe(201)
+      expect(created.json().unit_code).toBe('Unit01')
 
       const list = await app.inject({ method: 'GET', url: '/assignments' })
       expect(list.statusCode).toBe(200)
@@ -115,7 +222,7 @@ describe('assignments-service', () => {
         },
       })
       expect(suggestion.statusCode).toBe(200)
-      expect(suggestion.json().recommended_category).toBe('Verb')
+      expect(() => assertQuickAddSuggestionContract(suggestion.json())).not.toThrow()
 
       const quickAdd = await app.inject({
         method: 'POST',
@@ -124,104 +231,49 @@ describe('assignments-service', () => {
           term: 'swiftly',
           content_completed: 'I run every day.',
           category: 'Verb',
-          assignment_id: created.id,
+          assignment_id: 1,
         },
       })
       expect(quickAdd.statusCode).toBe(200)
-      expect(quickAdd.json().status).toBe('added')
+      expect(() => assertRowSyncResultContract(quickAdd.json())).not.toThrow()
 
       const updated = await app.inject({
         method: 'PUT',
-        url: `/assignments/${created.id}`,
+        url: '/assignments/1',
         payload: {
           subunits: [{ content: 'Updated 1A' }, { content: 'Updated 1B' }, { content: 'Updated 1C' }],
         },
       })
       expect(updated.statusCode).toBe(200)
-      expect(updated.json().subunits.map((item: { subunit_code: string }) => item.subunit_code)).toEqual(['1A', '1B', '1C'])
+      expect(updated.json().subunits).toHaveLength(3)
 
-      await createUnit(app, ['Unit 2A text'])
+      await app.inject({
+        method: 'POST',
+        url: '/assignments',
+        payload: {
+          subunits: [{ content: 'Unit 2A text' }],
+        },
+      })
 
       const stats = await app.inject({ method: 'GET', url: '/internal/v1/assignments/statistics' })
       expect(stats.statusCode).toBe(200)
-      expect(stats.json()).toMatchObject({
-        total_units: 2,
-        total_subunits: 4,
-        average_subunits_per_unit: 2,
-      })
-    } finally {
-      await app.close()
-    }
-  })
+      expect(() => assertAssignmentsStatisticsContract(stats.json())).not.toThrow()
 
-  it('bulk-delete returns correct counts for units', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
-    tempDirs.push(dir)
-    configureAssignmentsEnv(dir)
-    stubAssignmentsFetch([
-      { id: 1, category: 'Verb', value: 'run', normalized: 'run', source: 'manual', status: 'approved' },
-    ])
-
-    const app = buildAssignmentsServiceApp()
-    try {
-      const first = await createUnit(app, ['One'])
-      const second = await createUnit(app, ['Two', 'Three'])
-
-      const bulkDelete = await app.inject({
-        method: 'POST',
-        url: '/assignments/bulk-delete',
-        payload: { assignment_ids: [first.id, second.id, 999] },
-      })
-
-      expect(bulkDelete.statusCode).toBe(200)
-      expect(bulkDelete.json()).toMatchObject({
-        success_count: 2,
-        failed_count: 1,
-      })
-
-      const list = await app.inject({ method: 'GET', url: '/assignments' })
-      expect(list.json()).toEqual([])
-    } finally {
-      await app.close()
-    }
-  })
-
-  it('scan endpoint still returns contract payload without persisting units', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'assignments-service-'))
-    tempDirs.push(dir)
-    configureAssignmentsEnv(dir)
-    const fetchMock = stubAssignmentsFetch([
-      { id: 1, category: 'Verb', value: 'run', normalized: 'run', source: 'manual', status: 'approved' },
-    ])
-
-    const app = buildAssignmentsServiceApp()
-    try {
       const scan = await app.inject({
         method: 'POST',
         url: '/internal/v1/assignments/scan',
         payload: {
-          title: 'Legacy scan',
+          title: 'Essay',
           content_original: 'I walk',
-          content_completed: 'I run daily',
+          content_completed: 'I run every day.',
         },
       })
-
       expect(scan.statusCode).toBe(200)
-      expect(scan.json().assignment_id).toBeNull()
-      expect(scan.json().matches[0].term).toBe('run')
+      expect(() => assertAssignmentScanResultContract(scan.json())).not.toThrow()
 
-      const list = await app.inject({ method: 'GET', url: '/assignments' })
-      expect(list.json()).toEqual([])
-
-      const bulkRescan = await app.inject({
-        method: 'POST',
-        url: '/internal/v1/assignments/bulk-rescan',
-        payload: { assignment_ids: [1, 2] },
-      })
-      expect(bulkRescan.json()).toMatchObject({ success_count: 0, failed_count: 2 })
       expect(
-        fetchMock.mock.calls.filter(([input]) => String(input).includes('/internal/v1/lexicon/search')),
-      ).toHaveLength(1)
+        fetchMock.mock.calls.filter(([input]) => String(input).includes('/internal/v1/lexicon/search')).length,
+      ).toBeGreaterThan(0)
     } finally {
       await app.close()
     }

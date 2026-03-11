@@ -13,7 +13,6 @@ import {
   assertRowSyncResultContract,
 } from '@vocabulary/shared'
 import {
-  LexiconRepository,
   type AddEntryRequest,
   type BulkAddEntriesRequest,
   type BulkStatusRequest,
@@ -184,104 +183,8 @@ export function buildLexiconServiceApp() {
 }
 
 function createLexiconRepository(config: ReturnType<typeof loadConfig>): LexiconStore {
-  if (config.lexiconService.storageBackend !== 'postgres') {
-    return new LexiconRepository(config.lexiconDbPath)
-  }
-
-  const repository = new PostgresLexiconRepository(
+  return new PostgresLexiconRepository(
     config.lexiconService.postgresUrl,
     config.lexiconService.schemaName,
   )
-  if (!config.lexiconService.bootstrapFromSqlite) {
-    return repository
-  }
-
-  let bootstrapPromise: Promise<void> | null = null
-  const bootstrapIfNeeded = async () => {
-    if (bootstrapPromise) {
-      await bootstrapPromise
-      return
-    }
-    bootstrapPromise = (async () => {
-      if (!(await repository.isEmpty())) {
-        return
-      }
-      const sqliteRepository = new LexiconRepository(config.lexiconDbPath)
-      try {
-        await repository.importSnapshot(sqliteRepository.exportSnapshot())
-      } finally {
-        sqliteRepository.close()
-      }
-    })().catch((error) => {
-      bootstrapPromise = null
-      throw error
-    })
-    await bootstrapPromise
-  }
-
-  return {
-    async searchEntries(query) {
-      await bootstrapIfNeeded()
-      return repository.searchEntries(query)
-    },
-    async addEntry(request) {
-      await bootstrapIfNeeded()
-      return repository.addEntry(request)
-    },
-    async addEntries(request) {
-      await bootstrapIfNeeded()
-      return repository.addEntries(request)
-    },
-    async updateEntry(entryId, request) {
-      await bootstrapIfNeeded()
-      return repository.updateEntry(entryId, request)
-    },
-    async deleteEntries(request) {
-      await bootstrapIfNeeded()
-      return repository.deleteEntries(request)
-    },
-    async bulkUpdateStatus(request) {
-      await bootstrapIfNeeded()
-      return repository.bulkUpdateStatus(request)
-    },
-    async createCategory(request) {
-      await bootstrapIfNeeded()
-      return repository.createCategory(request)
-    },
-    async deleteCategory(name) {
-      await bootstrapIfNeeded()
-      return repository.deleteCategory(name)
-    },
-    async listCategories() {
-      await bootstrapIfNeeded()
-      return repository.listCategories()
-    },
-    async getStatistics() {
-      await bootstrapIfNeeded()
-      return repository.getStatistics()
-    },
-    async buildIndex() {
-      await bootstrapIfNeeded()
-      return repository.buildIndex()
-    },
-    async exportSnapshot() {
-      await bootstrapIfNeeded()
-      return repository.exportSnapshot()
-    },
-    async upsertMweExpression(request) {
-      await bootstrapIfNeeded()
-      return repository.upsertMweExpression(request)
-    },
-    async upsertMweSense(request) {
-      await bootstrapIfNeeded()
-      return repository.upsertMweSense(request)
-    },
-    async syncRow(request) {
-      await bootstrapIfNeeded()
-      return repository.syncRow(request)
-    },
-    async close() {
-      await repository.close()
-    },
-  }
 }
