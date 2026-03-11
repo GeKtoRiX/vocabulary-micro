@@ -61,3 +61,8 @@ backend/services/**/dist/
 frontend/dist/
 docker-data/postgres/*
 !docker-data/postgres/.gitignore
+
+# Playwright
+/node_modules/
+/test-results/
+/playwright-report/

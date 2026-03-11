@@ -1,0 +1,27 @@
+{
+  "name": "vocabulary-main",
+  "version": "1.0.0",
+  "description": "Web application for lexicon management, parse/sync workflows, assignments analysis, and statistics.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GeKtoRiX/vocabulary-micro.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/GeKtoRiX/vocabulary-micro/issues"
+  },
+  "homepage": "https://github.com/GeKtoRiX/vocabulary-micro#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
