@@ -164,17 +164,17 @@ export interface ExportSnapshotContract {
   tables: ExportSnapshotTableContract[]
 }
 
-export interface AssignmentCoverageRowContract {
-  title: string
-  coverage_pct: number
+export interface UnitStatisticsRowContract {
+  unit_code: string
+  subunit_count: number
   created_at: string
 }
 
 export interface AssignmentsStatisticsContract {
-  assignment_coverage: AssignmentCoverageRowContract[]
-  total_assignments: number
-  average_assignment_coverage: number | null
-  low_coverage_count: number
+  units: UnitStatisticsRowContract[]
+  total_units: number
+  total_subunits: number
+  average_subunits_per_unit: number | null
 }
 
 export interface AssignmentMatchContract {
@@ -370,18 +370,18 @@ export function assertExportSnapshotContract(value: unknown): asserts value is E
 
 export function assertAssignmentsStatisticsContract(value: unknown): asserts value is AssignmentsStatisticsContract {
   assertObject(value, 'AssignmentsStatistics')
-  assertArray(value.assignment_coverage, 'AssignmentsStatistics.assignment_coverage')
-  value.assignment_coverage.forEach((item, index) => {
-    assertObject(item, `AssignmentsStatistics.assignment_coverage[${index}]`)
-    assertString(item.title, `AssignmentsStatistics.assignment_coverage[${index}].title`)
-    assertNumber(item.coverage_pct, `AssignmentsStatistics.assignment_coverage[${index}].coverage_pct`)
-    assertString(item.created_at, `AssignmentsStatistics.assignment_coverage[${index}].created_at`)
+  assertArray(value.units, 'AssignmentsStatistics.units')
+  value.units.forEach((item, index) => {
+    assertObject(item, `AssignmentsStatistics.units[${index}]`)
+    assertString(item.unit_code, `AssignmentsStatistics.units[${index}].unit_code`)
+    assertInteger(item.subunit_count, `AssignmentsStatistics.units[${index}].subunit_count`)
+    assertString(item.created_at, `AssignmentsStatistics.units[${index}].created_at`)
   })
-  assertInteger(value.total_assignments, 'AssignmentsStatistics.total_assignments')
-  if (value.average_assignment_coverage !== null) {
-    assertNumber(value.average_assignment_coverage, 'AssignmentsStatistics.average_assignment_coverage')
+  assertInteger(value.total_units, 'AssignmentsStatistics.total_units')
+  assertInteger(value.total_subunits, 'AssignmentsStatistics.total_subunits')
+  if (value.average_subunits_per_unit !== null) {
+    assertNumber(value.average_subunits_per_unit, 'AssignmentsStatistics.average_subunits_per_unit')
   }
-  assertInteger(value.low_coverage_count, 'AssignmentsStatistics.low_coverage_count')
 }
 
 export function assertAssignmentScanResultContract(value: unknown): asserts value is AssignmentScanResultContract {

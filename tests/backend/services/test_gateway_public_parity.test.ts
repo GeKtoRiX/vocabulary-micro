@@ -86,6 +86,7 @@ describe('api-gateway public parity', () => {
 
       expect(frames).toEqual([
         { type: 'progress', message: 'Parsing...' },
+        { type: 'stage_progress', stage: 'nlp', status: 'done' },
         {
           type: 'result',
           rows: [
@@ -107,6 +108,7 @@ describe('api-gateway public parity', () => {
         },
         { type: 'done' },
       ])
+      expect('request_id' in frames[1]).toBe(false)
     } finally {
       await app.close()
     }

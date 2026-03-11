@@ -65,13 +65,13 @@ describe('api-gateway legacy contract parity', () => {
       counts_by_status: { approved: 2, pending_review: 1 },
       counts_by_source: { manual: 2, auto: 1 },
       categories: [{ name: 'Verb', count: 2 }],
-      assignment_coverage: [{ title: 'Essay', coverage_pct: 50, created_at: '2026-03-10T00:00:00Z' }],
+      units: [{ unit_code: 'Unit01', subunit_count: 4, created_at: '2026-03-10T00:00:00Z' }],
       overview: {
-        total_assignments: 1,
-        average_assignment_coverage: 50,
+        total_units: 1,
+        total_subunits: 4,
+        average_subunits_per_unit: 4,
         pending_review_count: 1,
         approved_count: 2,
-        low_coverage_count: 1,
         top_category: { name: 'Verb', count: 2 },
       },
     }

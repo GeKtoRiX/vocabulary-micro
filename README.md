@@ -157,6 +157,8 @@ Environment variables:
 | `ENABLE_THIRD_PASS_LLM` | Enable LLM third pass |
 | `THIRD_PASS_LLM_BASE_URL` | LLM server URL |
 | `THIRD_PASS_LLM_MODEL` | LLM model alias |
+| `THIRD_PASS_LLM_TIMEOUT_MS` | Timeout for NLP -> LLM third-pass request |
+| `GATEWAY_JOB_TTL_MS` | TTL for long-running SSE jobs in gateway |
 | `BERT_MODEL_NAME` | SBERT model name |
 | `BERT_LOCAL_FILES_ONLY` | Use local model files only |
 
@@ -165,9 +167,29 @@ Environment variables:
 | Variable | Description |
 |---|---|
 | `LLAMA_SERVER_AUTOSTART_ENABLED` | Set to `1` to enable |
-| `LLAMA_SERVER_EXECUTABLE` | Path to `llama-server` binary |
+| `LLAMA_SERVER_EXECUTABLE` | Path to `llama-server` binary or command in `PATH` |
 | `LLAMA_SERVER_MODEL_PATH` | Path to `.gguf` model |
 | `LLAMA_SERVER_N_GPU_LAYERS` | GPU layers (`-1` = full offload) |
+
+### Managed LLM service in `start.sh`
+
+`start.sh` can now manage the third-pass LLM service directly.
+
+Recommended local path:
+
+- `LLM_SERVICE_ENABLED=true`
+- `LLM_SERVICE_RUNTIME=llama_cpp`
+- `LLM_SERVICE_EXECUTABLE=llama-server`
+- `LLM_SERVICE_MODEL_PATH=/absolute/path/to/model.gguf`
+- `THIRD_PASS_LLM_TIMEOUT_MS=300000`
+- `GATEWAY_JOB_TTL_MS=420000`
+
+Optional ROCm `vLLM` path remains available through `LLM_SERVICE_RUNTIME=vllm`, but it depends on hardware/backend support for the selected quantization path.
+
+Live smoke scripts:
+
+- `bash scripts/run_llm_stage_check_tuned.sh` — generic tuned smoke for managed LLM startup + SSE stages
+- `bash scripts/run_llm_mwe_e2e.sh` — end-to-end smoke that additionally requires third-pass to extract both a phrasal verb and an idiom
 
 ## Tests
 

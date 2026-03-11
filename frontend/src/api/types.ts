@@ -96,11 +96,20 @@ export interface ScanResult {
 
 export interface Assignment {
   id: number
-  title: string
-  content_original: string
-  content_completed: string
-  status: string
-  lexicon_coverage_percent: number
+  unit_code: string
+  unit_number: number
+  subunit_count: number
+  subunits: UnitSubunit[]
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface UnitSubunit {
+  id: number
+  unit_id: number
+  subunit_code: string
+  position: number
+  content: string
   created_at: string | null
   updated_at: string | null
 }
@@ -128,13 +137,13 @@ export interface StatisticsData {
   counts_by_status: Record<string, number>
   counts_by_source: Record<string, number>
   categories: Array<{ name: string; count: number }>
-  assignment_coverage: Array<{ title: string; coverage_pct: number; created_at: string }>
+  units: Array<{ unit_code: string; subunit_count: number; created_at: string }>
   overview: {
-    total_assignments: number
-    average_assignment_coverage: number
+    total_units: number
+    total_subunits: number
+    average_subunits_per_unit: number
     pending_review_count: number
     approved_count: number
-    low_coverage_count: number
     top_category: {
       name: string
       count: number
@@ -142,10 +151,19 @@ export interface StatisticsData {
   }
 }
 
+export interface StageInfo {
+  stage: 'nlp' | 'llm'
+  status: 'loading' | 'done' | 'error'
+  label: string
+}
+
 export interface SSEEvent {
-  type: 'progress' | 'result' | 'error' | 'done'
+  type: 'progress' | 'result' | 'error' | 'done' | 'stage_progress'
   message?: string
+  status?: 'loading' | 'done' | 'error'
   data?: unknown
+  stage?: 'nlp' | 'llm'
+  llm_summary?: Record<string, unknown>
   rows?: ParseRow[]
   summary?: Record<string, unknown>
   status_message?: string

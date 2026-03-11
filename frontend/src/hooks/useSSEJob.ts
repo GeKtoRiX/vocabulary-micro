@@ -21,6 +21,7 @@ export function useSSEJob<T>(
   postUrl: string,
   streamPath: (jobId: string) => string,
   extractResult: (event: SSEEvent) => T | null,
+  onStageEvent?: (event: SSEEvent) => void,
 ) {
   const [state, setState] = useState<SSEJobState<T>>({
     status: 'idle',
@@ -57,6 +58,8 @@ export function useSSEJob<T>(
           const event = rawEvent as unknown as SSEEvent
           if (event.type === 'progress') {
             setState((s) => ({ ...s, progress: event.message || 'Working...' }))
+          } else if (event.type === 'stage_progress') {
+            onStageEvent?.(event)
           } else if (event.type === 'result') {
             const result = extractResult(event)
             setState({ status: 'done', progress: '', result, error: null })
@@ -76,7 +79,7 @@ export function useSSEJob<T>(
       )
       cleanupRef.current = cleanup
     },
-    [postUrl, streamPath, extractResult],
+    [postUrl, streamPath, extractResult, onStageEvent],
   )
 
   const reset = useCallback(() => {

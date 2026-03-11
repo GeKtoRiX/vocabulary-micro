@@ -220,14 +220,82 @@ describe('api-gateway e2e: parse', () => {
       expect(stream.statusCode).toBe(200)
       const frames = parseSseFrames(stream.body)
 
-      // Обязательная последовательность: progress → result → done
+      // Обязательная последовательность: progress → stage_progress → result → done
       expect(frames[0]).toMatchObject({ type: 'progress' })
+      expect(frames[1]).toMatchObject({ type: 'stage_progress', stage: 'nlp', status: 'done' })
       const resultFrame = frames.find((f) => f.type === 'result')
       expect(resultFrame).toBeDefined()
       expect(Array.isArray((resultFrame as { rows: unknown[] }).rows)).toBe(true)
       const rows = (resultFrame as { rows: Array<{ categories: string }> }).rows
       expect(rows[0].categories).toBe('Verb')
       expect(frames[frames.length - 1]).toMatchObject({ type: 'done' })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('POST /api/parse with third_pass_enabled runs third-pass and merges summary', async () => {
+    setupEnv()
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/internal/v1/nlp/parse')) {
+        expect(JSON.parse(String(init?.body ?? '{}'))).toMatchObject({
+          text: 'run fast',
+          third_pass_enabled: false,
+        })
+        return jsonResponse(PARSE_RESULT)
+      }
+      if (url.includes('/internal/v1/nlp/third-pass')) {
+        expect(JSON.parse(String(init?.body ?? '{}'))).toMatchObject({
+          text: 'run fast',
+          request_id: expect.any(String),
+          think_mode: true,
+          enabled: true,
+        })
+        return jsonResponse({
+          status: 'ok',
+          reason: '',
+          occurrences: [{ surface: 'run fast' }],
+        })
+      }
+      throw new Error(`Unexpected: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const app = buildGatewayApp()
+    try {
+      const start = await app.inject({
+        method: 'POST',
+        url: '/api/parse',
+        payload: { text: 'run fast', third_pass_enabled: true, think_mode: true },
+      })
+      const { job_id } = start.json() as { job_id: string }
+
+      const stream = await app.inject({
+        method: 'GET',
+        url: `/api/parse/jobs/${job_id}/stream`,
+      })
+      const frames = parseSseFrames(stream.body)
+
+      expect(frames).toContainEqual({ type: 'stage_progress', stage: 'nlp', status: 'done' })
+      expect(frames).toContainEqual({
+        type: 'stage_progress',
+        stage: 'llm',
+        status: 'done',
+        llm_summary: {
+          status: 'ok',
+          reason: '',
+          occurrences: [{ surface: 'run fast' }],
+        },
+      })
+      const resultFrame = frames.find((frame) => frame.type === 'result') as Record<string, unknown>
+      expect(resultFrame.summary).toMatchObject({
+        total_tokens: 2,
+        third_pass_summary: {
+          status: 'ok',
+          occurrences: [{ surface: 'run fast' }],
+        },
+      })
     } finally {
       await app.close()
     }
@@ -486,7 +554,15 @@ describe('api-gateway e2e: assignments routes', () => {
       const url = String(input)
       if (url.includes('/assignments') && !url.includes('scan') && !url.includes('bulk')) {
         return jsonResponse([
-          { assignment_id: 1, title: 'Essay 1', lexicon_coverage_percent: 80 },
+          {
+            id: 1,
+            unit_code: 'Unit01',
+            unit_number: 1,
+            subunit_count: 2,
+            subunits: [],
+            created_at: '2026-03-10T00:00:00Z',
+            updated_at: '2026-03-10T00:00:00Z',
+          },
         ])
       }
       throw new Error(`Unexpected: ${url}`)
@@ -498,6 +574,42 @@ describe('api-gateway e2e: assignments routes', () => {
       expect(res.statusCode).toBe(200)
       const body = res.json()
       expect(Array.isArray(body)).toBe(true)
+      expect(body[0].unit_code).toBe('Unit01')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('POST /api/assignments forwards unit payload to assignments-service', async () => {
+    setupEnv()
+    let capturedBody: unknown = null
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/assignments') && init?.method === 'POST') {
+        capturedBody = JSON.parse(String(init.body ?? '{}'))
+        return jsonResponse({
+          id: 2,
+          unit_code: 'Unit02',
+          unit_number: 2,
+          subunit_count: 2,
+          subunits: [],
+          created_at: '2026-03-10T01:00:00Z',
+          updated_at: '2026-03-10T01:00:00Z',
+        })
+      }
+      throw new Error(`Unexpected: ${url}`)
+    }))
+
+    const app = buildGatewayApp()
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/assignments',
+        payload: { subunits: [{ content: 'A' }, { content: 'B' }] },
+      })
+      expect(res.statusCode).toBe(200)
+      expect((capturedBody as { subunits: Array<{ content: string }> }).subunits).toEqual([{ content: 'A' }, { content: 'B' }])
+      expect(res.json().unit_code).toBe('Unit02')
     } finally {
       await app.close()
     }
@@ -509,7 +621,15 @@ describe('api-gateway e2e: assignments routes', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       capturedUrl = String(input)
       if (capturedUrl.match(/\/assignments\/\d+$/)) {
-        return jsonResponse({ assignment_id: 5, title: 'Essay 5', lexicon_coverage_percent: 60 })
+        return jsonResponse({
+          id: 5,
+          unit_code: 'Unit05',
+          unit_number: 5,
+          subunit_count: 1,
+          subunits: [{ id: 51, unit_id: 5, subunit_code: '5A', position: 0, content: 'Body', created_at: null, updated_at: null }],
+          created_at: '2026-03-10T00:00:00Z',
+          updated_at: '2026-03-10T00:00:00Z',
+        })
       }
       throw new Error(`Unexpected: ${capturedUrl}`)
     }))
@@ -519,7 +639,7 @@ describe('api-gateway e2e: assignments routes', () => {
       const res = await app.inject({ method: 'GET', url: '/api/assignments/5' })
       expect(res.statusCode).toBe(200)
       expect(capturedUrl).toContain('/assignments/5')
-      expect(res.json().assignment_id).toBe(5)
+      expect(res.json().id).toBe(5)
     } finally {
       await app.close()
     }
@@ -531,7 +651,7 @@ describe('api-gateway e2e: assignments routes', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       capturedUrl = String(input)
       if (init?.method === 'DELETE' && capturedUrl.match(/\/assignments\/\d+$/)) {
-        return jsonResponse({ message: 'Deleted assignment id=3.' })
+        return jsonResponse({ deleted: true, message: 'Unit deleted.' })
       }
       throw new Error(`Unexpected: ${capturedUrl}`)
     }))
@@ -631,69 +751,75 @@ describe('api-gateway e2e: assignments routes', () => {
   })
 })
 
-// ─── тесты: SSE jobs (update + bulk-rescan) ───────────────────────────────────
+// ─── тесты: assignments mutation routes + bulk-rescan SSE ─────────────────────
 
 describe('api-gateway e2e: assignment SSE jobs', () => {
-  it('PUT /api/assignments/:id → SSE stream with progress, result, done', async () => {
+  it('PUT /api/assignments/:id proxies unit update synchronously', async () => {
     setupEnv()
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    let capturedBody: unknown = null
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.includes('/internal/v1/assignments/') && url.includes('/update')) {
-        return jsonResponse(ASSIGNMENT_SCAN_RESULT)
+      if (url.includes('/assignments/7') && init?.method === 'PUT') {
+        capturedBody = JSON.parse(String(init.body ?? '{}'))
+        return jsonResponse({
+          id: 7,
+          unit_code: 'Unit07',
+          unit_number: 7,
+          subunit_count: 2,
+          subunits: [],
+          created_at: '2026-03-10T00:00:00Z',
+          updated_at: '2026-03-10T02:00:00Z',
+        })
       }
       throw new Error(`Unexpected: ${url}`)
     }))
 
     const app = buildGatewayApp()
     try {
-      const start = await app.inject({
+      const response = await app.inject({
         method: 'PUT',
         url: '/api/assignments/7',
-        payload: { title: 'Essay', content_original: 'I walk', content_completed: 'I run' },
+        payload: { subunits: [{ content: 'Updated A' }, { content: 'Updated B' }] },
       })
-      expect(start.statusCode).toBe(200)
-      const { job_id } = start.json() as { job_id: string }
-
-      const stream = await app.inject({
-        method: 'GET',
-        url: `/api/assignments/scan/jobs/${job_id}/stream`,
-      })
-      expect(stream.statusCode).toBe(200)
-      const frames = parseSseFrames(stream.body)
-
-      expect(frames[0]).toMatchObject({ type: 'progress', message: 'Updating assignment...' })
-      const resultFrame = frames.find((f) => f.type === 'result')
-      expect(resultFrame).toBeDefined()
-      expect((resultFrame as { data: { assignment_id: number } }).data.assignment_id).toBe(7)
-      expect(frames[frames.length - 1]).toMatchObject({ type: 'done' })
+      expect(response.statusCode).toBe(200)
+      expect((capturedBody as { subunits: Array<{ content: string }> }).subunits).toEqual([
+        { content: 'Updated A' },
+        { content: 'Updated B' },
+      ])
+      expect(response.json().unit_code).toBe('Unit07')
     } finally {
       await app.close()
     }
   })
 
-  it('PUT /api/assignments/:id correctly interpolates assignmentId in internal URL', async () => {
+  it('PUT /api/assignments/:id correctly interpolates assignmentId in service URL', async () => {
     setupEnv()
     let capturedUrl = ''
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => {
       capturedUrl = String(input)
-      if (capturedUrl.includes('/update')) {
-        return jsonResponse(ASSIGNMENT_SCAN_RESULT)
+      if (capturedUrl.includes('/assignments/42') && init?.method === 'PUT') {
+        return jsonResponse({
+          id: 42,
+          unit_code: 'Unit42',
+          unit_number: 42,
+          subunit_count: 1,
+          subunits: [],
+          created_at: '2026-03-10T00:00:00Z',
+          updated_at: '2026-03-10T02:00:00Z',
+        })
       }
       throw new Error(`Unexpected: ${capturedUrl}`)
     }))
 
     const app = buildGatewayApp()
     try {
-      const start = await app.inject({
+      const response = await app.inject({
         method: 'PUT',
         url: '/api/assignments/42',
-        payload: { title: 'T', content_original: 'a', content_completed: 'b' },
+        payload: { subunits: [{ content: 'b' }] },
       })
-      await app.inject({
-        method: 'GET',
-        url: `/api/assignments/scan/jobs/${(start.json() as { job_id: string }).job_id}/stream`,
-      })
-      expect(capturedUrl).toContain('/internal/v1/assignments/42/update')
+      expect(response.statusCode).toBe(200)
+      expect(capturedUrl).toContain('/assignments/42')
     } finally {
       await app.close()
     }

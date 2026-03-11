@@ -13,6 +13,15 @@ from infrastructure.config import PipelineSettings
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+_JSON_CODE_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
+_JSON_OCCURRENCE_RE = re.compile(
+    r'"canonical_form"\s*:\s*"(?P<form>[^"]+)"'
+    r'(?:(?!canonical_form).)*?"expression_type"\s*:\s*"(?P<type>phrasal_verb|idiom)"'
+    r'(?:(?!canonical_form).)*?"usage_label"\s*:\s*"(?P<usage>idiomatic|literal)"'
+    r'(?:(?!canonical_form).)*?"gloss"\s*:\s*"(?P<gloss>[^"]*)"'
+    r'(?:(?!canonical_form).)*?"confidence"\s*:\s*(?P<confidence>\d+(?:\.\d+)?)',
+    re.DOTALL | re.IGNORECASE,
+)
 _TEXT_PROCESSOR = TextProcessor()
 
 
@@ -200,16 +209,18 @@ class LlmThirdPassExtractor:
                     raise RuntimeError(f"Failed to call LLM endpoint '{endpoint}': {exc}") from exc
             return json.loads(raw_body)
 
-        def _extract_parsed_payload(outer_payload: dict[str, Any]) -> tuple[dict[str, Any] | list[Any] | None, str]:
-            choices = outer_payload.get("choices")
-            if not isinstance(choices, list) or not choices:
-                return None, ""
-            first = choices[0] if isinstance(choices[0], dict) else {}
-            message = first.get("message", {}) if isinstance(first, dict) else {}
-            content = message.get("content") if isinstance(message, dict) else ""
-            parsed = self._parse_content_payload(content)
-            finish_reason = str(first.get("finish_reason", "")).strip().lower() if isinstance(first, dict) else ""
-            return parsed, finish_reason
+        def _extract_parsed_payload(outer_payload: dict[str, Any]) -> tuple[dict[str, Any] | list[Any] | None, str]:
+            choices = outer_payload.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return None, ""
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            message = first.get("message", {}) if isinstance(first, dict) else {}
+            content = message.get("content") if isinstance(message, dict) else ""
+            parsed = self._parse_content_payload(content)
+            if parsed is None and isinstance(message, dict):
+                parsed = self._parse_reasoning_payload(message.get("reasoning_content"))
+            finish_reason = str(first.get("finish_reason", "")).strip().lower() if isinstance(first, dict) else ""
+            return parsed, finish_reason
 
         outer = _post_chat_once(payload)
         if isinstance(outer, dict):
@@ -245,11 +256,11 @@ class LlmThirdPassExtractor:
             return f"{base}/chat/completions"
         return f"{base}/v1/chat/completions"
 
-    def _parse_content_payload(self, content: Any) -> dict[str, Any] | list[Any] | None:
-        if isinstance(content, (dict, list)):
-            return content
-        text = str(content or "").strip()
-        if not text:
+    def _parse_content_payload(self, content: Any) -> dict[str, Any] | list[Any] | None:
+        if isinstance(content, (dict, list)):
+            return content
+        text = str(content or "").strip()
+        if not text:
             return None
         try:
             parsed = json.loads(text)
@@ -264,9 +275,130 @@ class LlmThirdPassExtractor:
             parsed = json.loads(match.group(0))
         except Exception:
             return None
-        if isinstance(parsed, (dict, list)):
-            return parsed
-        return None
+        if isinstance(parsed, (dict, list)):
+            return parsed
+        return None
+
+    def _parse_reasoning_payload(self, content: Any) -> dict[str, Any] | list[Any] | None:
+        text = str(content or "").strip()
+        if not text:
+            return None
+
+        for match in _JSON_CODE_BLOCK_RE.finditer(text):
+            parsed = self._parse_content_payload(match.group(1))
+            if parsed is not None:
+                return parsed
+
+        json_like_occurrences = self._parse_reasoning_json_occurrences(text)
+        if json_like_occurrences:
+            return {"occurrences": json_like_occurrences}
+
+        candidate_occurrences = self._parse_reasoning_candidate_blocks(text)
+        if candidate_occurrences:
+            return {"occurrences": candidate_occurrences}
+        return None
+
+    def _parse_reasoning_json_occurrences(self, text: str) -> list[dict[str, Any]]:
+        occurrences: list[dict[str, Any]] = []
+        for match in _JSON_OCCURRENCE_RE.finditer(text):
+            occurrences.append(
+                {
+                    "canonical_form": match.group("form"),
+                    "expression_type": match.group("type"),
+                    "usage_label": match.group("usage"),
+                    "gloss": match.group("gloss"),
+                    "confidence": float(match.group("confidence")),
+                }
+            )
+        return occurrences
+
+    def _parse_reasoning_candidate_blocks(self, text: str) -> list[dict[str, Any]]:
+        occurrences: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+
+        def finalize_current() -> None:
+            nonlocal current
+            if current is None:
+                return
+            if current.get("canonical_form") and current.get("expression_type"):
+                current.setdefault("usage_label", "idiomatic")
+                current.setdefault("confidence", 0.9)
+                current.setdefault("gloss", "")
+                occurrences.append(dict(current))
+            current = None
+
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            header_match = re.match(r'^[*-]\s*"(?P<form>[^"]+)"\s*:\s*(?P<desc>.*)$', line)
+            if header_match is not None:
+                finalize_current()
+                description = header_match.group("desc").strip()
+                current = {
+                    "canonical_form": header_match.group("form").strip(),
+                    "expression_type": self._infer_expression_type_from_text(description),
+                    "usage_label": "idiomatic",
+                    "gloss": self._extract_gloss_from_text(description),
+                }
+                continue
+
+            if current is None:
+                continue
+
+            normalized_line = re.sub(r"^[*-]\s*", "", line).strip()
+            lowered = normalized_line.lower()
+            if re.match(r"^\d+\.", lowered):
+                finalize_current()
+                continue
+            if lowered.startswith("type:"):
+                current["expression_type"] = _normalize_expression_type(normalized_line.split(":", 1)[1])
+                continue
+            if lowered.startswith("usage:"):
+                current["usage_label"] = _normalize_usage_label(normalized_line.split(":", 1)[1])
+                continue
+            if lowered.startswith("gloss:"):
+                current["gloss"] = self._clean_reasoning_phrase(normalized_line.split(":", 1)[1])
+                continue
+            if lowered.startswith("confidence:"):
+                current["confidence"] = self._normalize_reasoning_confidence(normalized_line.split(":", 1)[1])
+                continue
+
+        finalize_current()
+        return occurrences
+
+    def _infer_expression_type_from_text(self, text: str) -> str:
+        lowered = str(text or "").strip().lower()
+        if "phrasal verb" in lowered:
+            return "phrasal_verb"
+        if "idiom" in lowered:
+            return "idiom"
+        return ""
+
+    def _extract_gloss_from_text(self, text: str) -> str:
+        lowered = str(text or "").strip()
+        meaning_match = re.search(r"meaning(?:\s+to)?\s+(.+)$", lowered, re.IGNORECASE)
+        if meaning_match is None:
+            return ""
+        return self._clean_reasoning_phrase(meaning_match.group(1))
+
+    def _clean_reasoning_phrase(self, text: str) -> str:
+        cleaned = str(text or "").strip().strip(".").strip()
+        return re.sub(r"\s+", " ", cleaned)
+
+    def _normalize_reasoning_confidence(self, raw: str) -> float:
+        value = self._clean_reasoning_phrase(raw).lower()
+        try:
+            return float(value)
+        except ValueError:
+            pass
+        if value.startswith("high"):
+            return 0.95
+        if value.startswith("medium"):
+            return 0.75
+        if value.startswith("low"):
+            return 0.55
+        return 0.9
 
     def _build_prompt(self, *, text: str, think_mode: bool | None = None) -> str:
         effective_think = (

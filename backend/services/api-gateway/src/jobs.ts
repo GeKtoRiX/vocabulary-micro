@@ -9,7 +9,21 @@ interface JobState {
   waiters: Array<(event: GatewayJobEvent | null) => void>
 }
 
-export const JOB_TTL_MS = 60_000
+const DEFAULT_JOB_TTL_MS = 2 * 60 * 60_000
+
+function readJobTtlMs(): number {
+  const raw = process.env.GATEWAY_JOB_TTL_MS
+  if (!raw) {
+    return DEFAULT_JOB_TTL_MS
+  }
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 60_000) {
+    return DEFAULT_JOB_TTL_MS
+  }
+  return Math.trunc(parsed)
+}
+
+export const JOB_TTL_MS = readJobTtlMs()
 
 const jobs = new Map<string, JobState>()
 const jobTimers = new Map<string, ReturnType<typeof setTimeout>>()

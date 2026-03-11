@@ -84,6 +84,168 @@ describe('api-gateway failure modes', () => {
     }
   })
 
+  it('keeps parse result when third-pass request fails', async () => {
+    process.env.GATEWAY_PARSE_BACKEND = 'nlp'
+    process.env.NLP_SERVICE_HOST = 'nlp-service'
+    process.env.NLP_SERVICE_PORT = '8767'
+    process.env.GATEWAY_SERVE_STATIC = '0'
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input)
+      if (url.includes('/internal/v1/nlp/parse')) {
+        return new Response(JSON.stringify({
+          rows: [
+            {
+              index: 1,
+              token: 'run',
+              normalized: 'run',
+              lemma: 'run',
+              categories: 'Verb',
+              source: 'manual',
+              matched_form: 'run',
+              confidence: '1.0',
+              known: 'true',
+            },
+          ],
+          summary: { total_tokens: 1 },
+          status_message: 'ok',
+          error_message: '',
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      if (url.includes('/internal/v1/nlp/third-pass')) {
+        throw new Error('connect ECONNREFUSED llm-service')
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    }))
+
+    const app = buildGatewayApp()
+    try {
+      const start = await app.inject({
+        method: 'POST',
+        url: '/api/parse',
+        payload: { text: 'run', third_pass_enabled: true },
+      })
+      expect(start.statusCode).toBe(200)
+      const { job_id } = start.json() as { job_id: string }
+
+      const stream = await app.inject({
+        method: 'GET',
+        url: `/api/parse/jobs/${job_id}/stream`,
+      })
+      const frames = parseSseFrames(stream.body)
+
+      expect(frames).toContainEqual({ type: 'stage_progress', stage: 'nlp', status: 'done' })
+      expect(frames).toContainEqual({
+        type: 'stage_progress',
+        stage: 'llm',
+        status: 'error',
+        message: 'connect ECONNREFUSED llm-service',
+      })
+      expect(frames.some((frame) => frame.type === 'result')).toBe(true)
+      expect(frames[frames.length - 1]).toMatchObject({ type: 'done' })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('marks llm stage as error when third-pass returns failed summary', async () => {
+    process.env.GATEWAY_PARSE_BACKEND = 'nlp'
+    process.env.NLP_SERVICE_HOST = 'nlp-service'
+    process.env.NLP_SERVICE_PORT = '8767'
+    process.env.GATEWAY_SERVE_STATIC = '0'
+
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input)
+      if (url.includes('/internal/v1/nlp/parse')) {
+        return new Response(JSON.stringify({
+          rows: [
+            {
+              index: 1,
+              token: 'run',
+              normalized: 'run',
+              lemma: 'run',
+              categories: 'Verb',
+              source: 'manual',
+              matched_form: 'run',
+              confidence: '1.0',
+              known: 'true',
+            },
+          ],
+          summary: { total_tokens: 1 },
+          status_message: 'ok',
+          error_message: '',
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      if (url.includes('/internal/v1/nlp/third-pass')) {
+        return new Response(JSON.stringify({
+          status: 'failed',
+          reason: 'third_pass_request_failed',
+          stage_statuses: [
+            {
+              stage: 'llm_extract',
+              status: 'failed',
+              reason: 'third_pass_request_failed',
+              metadata: {
+                error: "Failed to call LLM endpoint 'http://127.0.0.1:8000/v1/chat/completions': timed out",
+              },
+            },
+          ],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    }))
+
+    const app = buildGatewayApp()
+    try {
+      const start = await app.inject({
+        method: 'POST',
+        url: '/api/parse',
+        payload: { text: 'run', third_pass_enabled: true },
+      })
+      expect(start.statusCode).toBe(200)
+      const { job_id } = start.json() as { job_id: string }
+
+      const stream = await app.inject({
+        method: 'GET',
+        url: `/api/parse/jobs/${job_id}/stream`,
+      })
+      const frames = parseSseFrames(stream.body)
+
+      expect(frames).toContainEqual({ type: 'stage_progress', stage: 'nlp', status: 'done' })
+      expect(frames).toContainEqual({
+        type: 'stage_progress',
+        stage: 'llm',
+        status: 'error',
+        message: "Failed to call LLM endpoint 'http://127.0.0.1:8000/v1/chat/completions': timed out",
+        llm_summary: {
+          status: 'failed',
+          reason: 'third_pass_request_failed',
+          stage_statuses: [
+            {
+              stage: 'llm_extract',
+              status: 'failed',
+              reason: 'third_pass_request_failed',
+              metadata: {
+                error: "Failed to call LLM endpoint 'http://127.0.0.1:8000/v1/chat/completions': timed out",
+              },
+            },
+          ],
+        },
+      })
+      const resultFrame = frames.find((frame) => frame.type === 'result')
+      expect(resultFrame).toBeTruthy()
+      expect((resultFrame as { summary: Record<string, unknown> }).summary).toMatchObject({
+        third_pass_summary: {
+          status: 'failed',
+          reason: 'third_pass_request_failed',
+        },
+      })
+      expect(frames[frames.length - 1]).toMatchObject({ type: 'done' })
+    } finally {
+      await app.close()
+    }
+  })
+
   it('emits an SSE error event when assignments-service scan backend is unavailable', async () => {
     process.env.GATEWAY_ASSIGNMENTS_BACKEND = 'service'
     process.env.ASSIGNMENTS_SERVICE_HOST = 'assignments-service'
@@ -147,10 +309,10 @@ describe('api-gateway failure modes', () => {
       }
       if (url.includes('/internal/v1/assignments/statistics')) {
         return new Response(JSON.stringify({
-          assignment_coverage: [],
-          total_assignments: 0,
-          average_assignment_coverage: null,
-          low_coverage_count: 0,
+          units: [],
+          total_units: 0,
+          total_subunits: 0,
+          average_subunits_per_unit: null,
         }), { status: 200, headers: { 'content-type': 'application/json' } })
       }
       throw new Error(`Unexpected fetch: ${url}`)
@@ -160,7 +322,7 @@ describe('api-gateway failure modes', () => {
     try {
       const response = await app.inject({ method: 'GET', url: '/api/statistics' })
       expect(response.statusCode).toBe(200)
-      expect(response.json().overview.average_assignment_coverage).toBe(0)
+      expect(response.json().overview.average_subunits_per_unit).toBe(0)
     } finally {
       await app.close()
     }

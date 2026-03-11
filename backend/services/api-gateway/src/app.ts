@@ -62,6 +62,8 @@ export function buildGatewayApp() {
       pushJobEvent(jobId, { type: 'progress', message: 'Parsing...' })
       try {
         if (config.gateway.parseBackend === 'nlp') {
+          const body = (request.body ?? {}) as Record<string, unknown>
+          const thirdPassEnabled = Boolean(body.third_pass_enabled)
           const payload = await requestJson<Record<string, unknown>>(
             serviceBaseUrl(config.nlpService),
             '/internal/v1/nlp/parse',
@@ -71,11 +73,72 @@ export function buildGatewayApp() {
                 ...extractForwardHeaders(request, requestId),
                 'content-type': 'application/json',
               },
-              body: JSON.stringify(request.body ?? {}),
+              body: JSON.stringify({
+                ...body,
+                third_pass_enabled: false,
+              }),
             },
           )
           assertParseResultContract(payload)
-          pushJobEvent(jobId, asGatewayEvent({ type: 'result', ...payload }))
+          pushJobEvent(jobId, { type: 'stage_progress', stage: 'nlp', status: 'done' })
+
+          let finalPayload = payload
+          if (thirdPassEnabled) {
+            try {
+              const llmPayload = await requestJson<Record<string, unknown>>(
+                serviceBaseUrl(config.nlpService),
+                '/internal/v1/nlp/third-pass',
+                {
+                  method: 'POST',
+                  headers: {
+                    ...extractForwardHeaders(request, requestId),
+                    'content-type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    text: body.text,
+                    request_id: requestId,
+                    think_mode: body.think_mode ?? false,
+                    enabled: true,
+                  }),
+                },
+              )
+
+              if (isFailedThirdPassSummary(llmPayload)) {
+                pushJobEvent(jobId, {
+                  type: 'stage_progress',
+                  stage: 'llm',
+                  status: 'error',
+                  message: thirdPassFailureMessage(llmPayload),
+                  llm_summary: llmPayload,
+                })
+              } else {
+                pushJobEvent(jobId, {
+                  type: 'stage_progress',
+                  stage: 'llm',
+                  status: 'done',
+                  llm_summary: llmPayload,
+                })
+              }
+
+              const nlpSummary = isRecord(payload.summary) ? payload.summary : {}
+              finalPayload = {
+                ...payload,
+                summary: {
+                  ...nlpSummary,
+                  third_pass_summary: llmPayload,
+                },
+              }
+            } catch (llmErr) {
+              pushJobEvent(jobId, {
+                type: 'stage_progress',
+                stage: 'llm',
+                status: 'error',
+                message: llmErr instanceof Error ? llmErr.message : String(llmErr),
+              })
+            }
+          }
+
+          pushJobEvent(jobId, asGatewayEvent({ type: 'result', ...finalPayload }))
         } else {
           await bridgeLegacyJob({
             baseUrl: config.legacyBaseUrl,
@@ -159,13 +222,13 @@ export function buildGatewayApp() {
         counts_by_status: lexiconStats.counts_by_status,
         counts_by_source: lexiconStats.counts_by_source,
         categories: lexiconStats.categories,
-        assignment_coverage: assignmentsStats.assignment_coverage,
+        units: assignmentsStats.units,
         overview: {
-          total_assignments: assignmentsStats.total_assignments,
-          average_assignment_coverage: Number(Number(assignmentsStats.average_assignment_coverage ?? 0).toFixed(1)),
+          total_units: assignmentsStats.total_units,
+          total_subunits: assignmentsStats.total_subunits,
+          average_subunits_per_unit: Number(Number(assignmentsStats.average_subunits_per_unit ?? 0).toFixed(1)),
           pending_review_count: Number(lexiconStats.counts_by_status.pending_review ?? 0),
           approved_count: Number(lexiconStats.counts_by_status.approved ?? 0),
-          low_coverage_count: assignmentsStats.low_coverage_count,
           top_category: topCategory,
         },
       })
@@ -327,8 +390,10 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
   })
 
   for (const route of [
+    { method: 'POST', url: '/api/assignments', path: '/assignments' },
     { method: 'GET', url: '/api/assignments', path: '/assignments' },
     { method: 'GET', url: '/api/assignments/:assignmentId', path: '/assignments/:assignmentId' },
+    { method: 'PUT', url: '/api/assignments/:assignmentId', path: '/assignments/:assignmentId' },
     { method: 'DELETE', url: '/api/assignments/:assignmentId', path: '/assignments/:assignmentId' },
     { method: 'POST', url: '/api/assignments/bulk-delete', path: '/assignments/bulk-delete' },
     { method: 'GET', url: '/api/assignments/:assignmentId/audio', path: '/assignments/:assignmentId/audio' },
@@ -361,52 +426,6 @@ function registerAssignmentsRoutes(app: ReturnType<typeof fastify>, config: Retu
       },
     })
   }
-
-  app.put('/api/assignments/:assignmentId', async (request: FastifyRequest, reply: FastifyReply) => {
-    const requestId = getRequestId(request)
-    const jobId = createJob()
-    const assignmentId = String((request.params as { assignmentId: string }).assignmentId)
-    queueMicrotask(async () => {
-      pushJobEvent(jobId, { type: 'progress', message: 'Updating assignment...' })
-      try {
-        if (config.gateway.assignmentsBackend === 'service') {
-          const payload = await requestJson<Record<string, unknown>>(
-            serviceBaseUrl(config.assignmentsService),
-            `/internal/v1/assignments/${assignmentId}/update`,
-            {
-              method: 'PUT',
-              headers: {
-                ...extractForwardHeaders(request, requestId),
-                'content-type': 'application/json',
-              },
-              body: JSON.stringify(request.body ?? {}),
-            },
-          )
-          assertAssignmentScanResultContract(payload)
-          pushJobEvent(jobId, { type: 'result', data: payload })
-        } else {
-          await bridgeLegacyJob({
-            baseUrl: config.legacyBaseUrl,
-            startPath: `/api/assignments/${assignmentId}`,
-            streamPath: (innerJobId) => `/api/assignments/scan/jobs/${innerJobId}/stream`,
-            body: request.body ?? {},
-            headers: extractForwardHeaders(request, requestId),
-            onEvent(event) {
-              pushJobEvent(jobId, sanitizePublicEvent(event))
-            },
-          })
-        }
-      } catch (error) {
-        pushJobEvent(jobId, {
-          type: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        })
-      } finally {
-        pushJobEvent(jobId, { type: 'done' })
-      }
-    })
-    reply.send({ job_id: jobId })
-  })
 
   app.post('/api/assignments/bulk-rescan', async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request)
@@ -501,6 +520,36 @@ function asGatewayEvent(event: Record<string, unknown>): import('./jobs.js').Gat
 function sanitizePublicEvent(event: Record<string, unknown>): import('./jobs.js').GatewayJobEvent {
   const { request_id: _, ...rest } = event
   return asGatewayEvent(rest)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isFailedThirdPassSummary(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value.status === 'failed'
+}
+
+function thirdPassFailureMessage(payload: Record<string, unknown>): string {
+  const stageStatuses = payload.stage_statuses
+  if (Array.isArray(stageStatuses)) {
+    for (const stageStatus of stageStatuses) {
+      if (!isRecord(stageStatus)) {
+        continue
+      }
+      const metadata = stageStatus.metadata
+      if (isRecord(metadata) && typeof metadata.error === 'string' && metadata.error.trim()) {
+        return metadata.error
+      }
+      if (typeof stageStatus.reason === 'string' && stageStatus.reason.trim()) {
+        return stageStatus.reason
+      }
+    }
+  }
+  if (typeof payload.reason === 'string' && payload.reason.trim()) {
+    return payload.reason
+  }
+  return 'LLM third pass failed.'
 }
 
 function setRequestId(request: FastifyRequest, requestId?: string): void {

@@ -1,12 +1,13 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { SortableTable, type Column } from '../components/SortableTable'
 import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu'
 import { KpiCard } from '../components/KpiCard'
 import { SectionMessage } from '../components/SectionMessage'
 import { StatusBadge } from '../components/StatusBadge'
+import { StageProgressPopup } from '../components/StageProgressPopup'
 import { useSSEJob } from '../hooks/useSSEJob'
 import { apiPost } from '../api/client'
-import type { ParseResultSummary, ParseRow, ParseResult, SSEEvent, RowSyncResult } from '../api/types'
+import type { ParseResultSummary, ParseRow, ParseResult, SSEEvent, RowSyncResult, StageInfo } from '../api/types'
 import { toast } from '../components/Toast'
 import { formatPercent } from '../utils/format'
 import '../styles/layout.css'
@@ -38,6 +39,7 @@ export function ParseTab() {
   const [sync, setSync] = useState(false)
   const [thirdPass, setThirdPass] = useState(false)
   const [thinkMode, setThinkMode] = useState(false)
+  const [stages, setStages] = useState<StageInfo[]>([])
   const [filterText, setFilterText] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; row: ParseRow } | null>(null)
   const [selectedKeys] = useState<Set<number>>(new Set())
@@ -52,14 +54,35 @@ export function ParseTab() {
     }
   }, [])
 
+  const handleStageEvent = useCallback((event: SSEEvent) => {
+    if (event.type !== 'stage_progress' || !event.stage || !event.status) {
+      return
+    }
+
+    setStages((current) => current.map((stage) => (
+      stage.stage === event.stage ? { ...stage, status: event.status as StageInfo['status'] } : stage
+    )))
+  }, [])
+
   const { status, progress, result, error, start } = useSSEJob<ParseResult>(
     '/parse',
     (jobId) => `/parse/jobs/${jobId}/stream`,
     extractResult,
+    handleStageEvent,
   )
+
+  useEffect(() => {
+    if (result || error || status === 'idle') {
+      setStages([])
+    }
+  }, [result, error, status])
 
   const handleParse = () => {
     if (!text.trim()) return
+    setStages([
+      { stage: 'nlp', status: 'loading', label: 'NLP Analysis - spaCy / SBERT' },
+      ...(thirdPass ? [{ stage: 'llm' as const, status: 'loading' as const, label: 'LLM Analysis - Qwen3.5 (vLLM)' }] : []),
+    ])
     start({ text, sync, third_pass_enabled: thirdPass, think_mode: thinkMode })
   }
 
@@ -228,6 +251,8 @@ export function ParseTab() {
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      <StageProgressPopup stages={stages} open={isWorking && stages.length > 0} />
     </div>
   )
 }

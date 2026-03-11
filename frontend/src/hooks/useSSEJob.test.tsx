@@ -80,4 +80,26 @@ describe('useSSEJob', () => {
     expect(result.current.status).toBe('error')
     expect(result.current.error).toContain('start failed')
   })
+
+  test('forwards stage events to callback', async () => {
+    let pushEvent: ((event: Record<string, unknown>) => void) | undefined
+    const onStageEvent = vi.fn()
+    vi.spyOn(client, 'apiPost').mockResolvedValue({ job_id: 'job-4' })
+    vi.spyOn(client, 'openSSEStream').mockImplementation((_path, onEvent) => {
+      pushEvent = onEvent
+      return vi.fn()
+    })
+
+    const { result } = renderHook(() => useSSEJob('/parse', (id) => `/jobs/${id}`, () => null, onStageEvent))
+
+    await act(async () => {
+      await result.current.start({ text: 'hello' })
+    })
+
+    act(() => {
+      pushEvent?.({ type: 'stage_progress', stage: 'nlp', status: 'done' })
+    })
+
+    expect(onStageEvent).toHaveBeenCalledWith({ type: 'stage_progress', stage: 'nlp', status: 'done' })
+  })
 })

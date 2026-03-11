@@ -1256,36 +1256,36 @@ components:
           type: integer
         message:
           type: string
-    AssignmentCoverageStats:
+    UnitStatisticsRow:
       type: object
       required:
-        - title
-        - coverage_pct
+        - unit_code
+        - subunit_count
         - created_at
       properties:
-        title:
+        unit_code:
           type: string
-        coverage_pct:
-          type: number
+        subunit_count:
+          type: integer
         created_at:
           type: string
     AssignmentsStatistics:
       type: object
       required:
-        - assignment_coverage
-        - total_assignments
-        - average_assignment_coverage
-        - low_coverage_count
+        - units
+        - total_units
+        - total_subunits
+        - average_subunits_per_unit
       properties:
-        assignment_coverage:
+        units:
           type: array
           items:
-            $ref: '#/components/schemas/AssignmentCoverageStats'
-        total_assignments:
+            $ref: '#/components/schemas/UnitStatisticsRow'
+        total_units:
           type: integer
-        average_assignment_coverage:
+        total_subunits:
+          type: integer
+        average_subunits_per_unit:
           type:
             - number
             - 'null'
-        low_coverage_count:
-          type: integer

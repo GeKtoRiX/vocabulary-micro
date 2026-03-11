@@ -22,6 +22,31 @@ FRONTEND_DEV_HOST="${FRONTEND_DEV_HOST:-127.0.0.1}"
 FRONTEND_DEV_PORT="${FRONTEND_DEV_PORT:-5173}"
 STARTUP_TIMEOUT_SECONDS="${STARTUP_TIMEOUT_SECONDS:-90}"
 CLEANUP_RAN=0
+LLM_SERVICE_ENABLED="${LLM_SERVICE_ENABLED-}"
+LLM_SERVICE_RUNTIME="${LLM_SERVICE_RUNTIME-}"
+LLM_SERVICE_MODEL="${LLM_SERVICE_MODEL-}"
+LLM_SERVICE_HOST="${LLM_SERVICE_HOST-}"
+LLM_SERVICE_PORT="${LLM_SERVICE_PORT-}"
+LLM_SERVICE_MAX_MODEL_LEN="${LLM_SERVICE_MAX_MODEL_LEN-}"
+LLM_SERVICE_GPU_UTIL="${LLM_SERVICE_GPU_UTIL-}"
+LLM_SERVICE_READY_TIMEOUT_SECONDS="${LLM_SERVICE_READY_TIMEOUT_SECONDS-}"
+THIRD_PASS_LLM_TIMEOUT_MS="${THIRD_PASS_LLM_TIMEOUT_MS-}"
+LLM_SERVICE_EXECUTABLE="${LLM_SERVICE_EXECUTABLE-}"
+LLM_SERVICE_MODEL_PATH="${LLM_SERVICE_MODEL_PATH-}"
+LLM_SERVICE_N_GPU_LAYERS="${LLM_SERVICE_N_GPU_LAYERS-}"
+LLM_SERVICE_THREADS="${LLM_SERVICE_THREADS-}"
+LLM_SERVICE_BATCH_SIZE="${LLM_SERVICE_BATCH_SIZE-}"
+LLM_SERVICE_UBATCH_SIZE="${LLM_SERVICE_UBATCH_SIZE-}"
+LLM_SERVICE_THREADS_BATCH="${LLM_SERVICE_THREADS_BATCH-}"
+LLM_SERVICE_THREADS_HTTP="${LLM_SERVICE_THREADS_HTTP-}"
+LLM_SERVICE_PARALLEL_SLOTS="${LLM_SERVICE_PARALLEL_SLOTS-}"
+LLM_SERVICE_FLASH_ATTN="${LLM_SERVICE_FLASH_ATTN-}"
+LLM_SERVICE_CACHE_REUSE="${LLM_SERVICE_CACHE_REUSE-}"
+LLM_SERVICE_DISABLE_WARMUP="${LLM_SERVICE_DISABLE_WARMUP-}"
+LLM_SERVICE_DISABLE_WEBUI="${LLM_SERVICE_DISABLE_WEBUI-}"
+LLM_SERVICE_EXTRA_ARGS="${LLM_SERVICE_EXTRA_ARGS-}"
+VLLM_IMAGE="${VLLM_IMAGE-}"
+HF_CACHE="${HF_CACHE-}"
 
 # Python backend: docker (рекомендуется) или native (устаревший).
 # По умолчанию: docker если образ найден, иначе native.
@@ -29,6 +54,7 @@ PYTHON_BACKEND="${PYTHON_BACKEND:-}"
 PYTHON_IMAGE_GPU="${PYTHON_IMAGE_GPU:-vocabulary-python-runtime-rocm:local}"
 PYTHON_IMAGE_CPU="${PYTHON_IMAGE_CPU:-vocabulary-python-runtime:local}"
 PYTHON_IMAGE=""          # будет выбран ниже после загрузки .env
+ROCM_DOCKER_GPU_FLAGS=""
 PYTHON_DOCKER_GPU_FLAGS="" # будет задан ниже для BERT_DEVICE=cuda
 
 PIDS=()
@@ -38,7 +64,7 @@ COMPOSE_CMD=()
 
 load_env_defaults_file() {
   local file_path="$1"
-  local line key
+  local line key current_value
   if [ ! -f "$file_path" ]; then
     return 0
   fi
@@ -54,7 +80,8 @@ load_env_defaults_file() {
     if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
       continue
     fi
-    if [ -n "${!key+x}" ]; then
+    current_value="${!key-}"
+    if [ -n "${!key+x}" ] && [ -n "$current_value" ]; then
       continue
     fi
     eval "export ${line}"
@@ -82,6 +109,88 @@ require_command() {
   echo "[start] Required command '$command_name' is not available."
   echo "[start] $help_text"
   exit 1
+}
+
+resolve_path_if_relative() {
+  local value="$1"
+  if [ -z "$value" ]; then
+    return 1
+  fi
+  if [[ "$value" = /* ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  printf '%s\n' "$SCRIPT_DIR/$value"
+}
+
+resolve_executable_for_managed_llm() {
+  local executable="$1"
+  if [ -z "$executable" ]; then
+    return 1
+  fi
+  if [[ "$executable" == */* ]]; then
+    resolve_path_if_relative "$executable"
+    return 0
+  fi
+  command -v "$executable" 2>/dev/null
+}
+
+assert_llama_cpp_runtime_available() {
+  local executable_path=""
+  local model_path=""
+
+  executable_path="$(resolve_executable_for_managed_llm "$LLM_SERVICE_EXECUTABLE" || true)"
+  if [ -z "$executable_path" ]; then
+    echo "[start] llama.cpp executable '${LLM_SERVICE_EXECUTABLE}' not found."
+    echo "[start] Install llama.cpp and ensure 'llama-server' is in PATH,"
+    echo "[start] or set LLM_SERVICE_EXECUTABLE to the local binary path."
+    exit 1
+  fi
+  if [ ! -x "$executable_path" ]; then
+    echo "[start] llama.cpp executable is not executable: $executable_path"
+    exit 1
+  fi
+
+  model_path="$(resolve_path_if_relative "$LLM_SERVICE_MODEL_PATH" || true)"
+  if [ -z "$model_path" ]; then
+    echo "[start] LLM_SERVICE_MODEL_PATH must point to a local .gguf file when LLM_SERVICE_RUNTIME=llama_cpp."
+    exit 1
+  fi
+  if [ ! -f "$model_path" ]; then
+    echo "[start] llama.cpp model not found: $model_path"
+    echo "[start] Download a GGUF file and set LLM_SERVICE_MODEL_PATH accordingly."
+    exit 1
+  fi
+}
+
+resolve_group_gid() {
+  local group_name="$1"
+  local group_line=""
+  group_line="$(getent group "$group_name" 2>/dev/null || true)"
+  if [ -z "$group_line" ]; then
+    return 1
+  fi
+  printf '%s\n' "${group_line%%:*}" >/dev/null
+  printf '%s\n' "$group_line" | cut -d: -f3
+}
+
+build_python_docker_gpu_flags() {
+  local gpu_flags=()
+  local gid=""
+
+  gpu_flags+=(--device /dev/kfd --device /dev/dri)
+
+  gid="$(resolve_group_gid video || true)"
+  if [ -n "$gid" ]; then
+    gpu_flags+=(--group-add "$gid")
+  fi
+
+  gid="$(resolve_group_gid render || true)"
+  if [ -n "$gid" ]; then
+    gpu_flags+=(--group-add "$gid")
+  fi
+
+  printf '%q ' "${gpu_flags[@]}"
 }
 
 parse_postgres_dsn() {
@@ -343,6 +452,70 @@ PY
   return 1
 }
 
+wait_for_llm_ready() {
+  local name="$1"
+  local base_url="$2"
+  local timeout_seconds="${3:-$STARTUP_TIMEOUT_SECONDS}"
+  local deadline=$((SECONDS + timeout_seconds))
+  local attempt_output=""
+
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    ensure_managed_processes_alive
+    set +e
+    attempt_output="$(python3 - "$base_url" <<'PY'
+import sys
+import urllib.error
+import urllib.request
+from urllib.parse import urlsplit
+
+base_url = sys.argv[1].strip().rstrip("/")
+parsed = urlsplit(base_url)
+host = parsed.hostname or "127.0.0.1"
+port = parsed.port
+scheme = parsed.scheme or "http"
+root = f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
+candidates = [f"{root}/health", f"{root}/v1/models", f"{base_url}/health", f"{base_url}/v1/models"]
+seen = set()
+
+for candidate in candidates:
+    if not candidate or candidate in seen:
+        continue
+    seen.add(candidate)
+    request = urllib.request.Request(candidate, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            status = int(getattr(response, "status", 0) or 0)
+        if 200 <= status < 500:
+            print(candidate)
+            sys.exit(0)
+        print(f"{candidate} -> HTTP {status}")
+    except urllib.error.HTTPError as error:
+        if 200 <= int(error.code) < 500:
+            print(candidate)
+            sys.exit(0)
+        print(f"{candidate} -> HTTP {error.code}")
+    except Exception as error:
+        print(f"{candidate} -> {error}")
+
+sys.exit(1)
+PY
+)"
+    local status=$?
+    set -e
+    if [ "$status" -eq 0 ]; then
+      echo "[start] ${name} is ready at ${attempt_output}"
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "[start] ${name} did not become ready within ${timeout_seconds}s."
+  if [ -n "$attempt_output" ]; then
+    echo "[start] Last readiness probe: ${attempt_output}"
+  fi
+  return 1
+}
+
 cleanup_managed_processes() {
   local pgid
   local deadline
@@ -426,10 +599,23 @@ for arg in "$@"; do
       echo "  PYTHON_IMAGE_GPU  Docker image for GPU (ROCm) mode (default: vocabulary-python-runtime-rocm:local)."
       echo "  PYTHON_IMAGE_CPU  Docker image for CPU mode (default: vocabulary-python-runtime:local)."
       echo "  BERT_DEVICE=cpu|cuda  GPU inference (requires ROCm image and AMD GPU)."
+      echo "  LLM_SERVICE_ENABLED=true|false  Start managed third-pass LLM service."
+      echo "  LLM_SERVICE_RUNTIME=llama_cpp|vllm  Managed LLM runtime (default: llama_cpp)."
+      echo "  LLM_SERVICE_MODEL  Public model alias exposed to NLP (default: Qwen3.5-9B-GGUF)."
+      echo "  LLM_SERVICE_PORT  Local port for managed vLLM service (default: 8000)."
+      echo "  LLM_SERVICE_MAX_MODEL_LEN  Context length for managed LLM service (default: 8192)."
+      echo "  LLM_SERVICE_READY_TIMEOUT_SECONDS  Seconds to wait for managed LLM readiness (default: 900)."
+      echo "  THIRD_PASS_LLM_TIMEOUT_MS  Timeout for NLP -> LLM third-pass requests."
+      echo "  GATEWAY_JOB_TTL_MS  TTL for long-running SSE jobs in api-gateway."
+      echo "  LLM_SERVICE_EXECUTABLE  llama-server binary path or command (default: llama-server)."
+      echo "  LLM_SERVICE_MODEL_PATH  Local GGUF path for llama.cpp runtime."
+      echo "  LLM_SERVICE_N_GPU_LAYERS  llama.cpp GPU layers (-1 = full offload)."
+      echo "  VLLM_IMAGE  ROCm vLLM image when LLM_SERVICE_RUNTIME=vllm (default: vllm/vllm-openai-rocm:latest)."
       echo ""
       echo "First-time setup:"
       echo "  ./scripts/prepare_docker_runtime.sh        # CPU image"
       echo "  ./scripts/prepare_docker_runtime.sh --rocm # + GPU (ROCm) image (~3 GB)"
+      echo "  docker pull vllm/vllm-openai-rocm:latest   # managed vLLM image (only for LLM_SERVICE_RUNTIME=vllm)"
       exit 0
       ;;
   esac
@@ -449,6 +635,38 @@ if [ "$POSTGRES_MODE" = "1" ] || [ "${POSTGRES_MODE:-0}" = "1" ]; then
   load_env_defaults_file "$SCRIPT_DIR/.env.postgres.local"
 fi
 POSTGRES_MODE="${POSTGRES_MODE:-0}"
+
+LLM_SERVICE_ENABLED="${LLM_SERVICE_ENABLED:-false}"
+LLM_SERVICE_RUNTIME="${LLM_SERVICE_RUNTIME:-llama_cpp}"
+LLM_SERVICE_MODEL="${LLM_SERVICE_MODEL:-Qwen3.5-9B-GGUF}"
+LLM_SERVICE_HOST="${LLM_SERVICE_HOST:-127.0.0.1}"
+LLM_SERVICE_PORT="${LLM_SERVICE_PORT:-8000}"
+LLM_SERVICE_MAX_MODEL_LEN="${LLM_SERVICE_MAX_MODEL_LEN:-8192}"
+LLM_SERVICE_GPU_UTIL="${LLM_SERVICE_GPU_UTIL:-0.90}"
+LLM_SERVICE_READY_TIMEOUT_SECONDS="${LLM_SERVICE_READY_TIMEOUT_SECONDS:-900}"
+if [ -z "${THIRD_PASS_LLM_TIMEOUT_MS:-}" ]; then
+  if [ "${LLM_SERVICE_RUNTIME}" = "llama_cpp" ]; then
+    THIRD_PASS_LLM_TIMEOUT_MS="240000"
+  else
+    THIRD_PASS_LLM_TIMEOUT_MS="120000"
+  fi
+fi
+LLM_SERVICE_EXECUTABLE="${LLM_SERVICE_EXECUTABLE:-llama-server}"
+LLM_SERVICE_MODEL_PATH="${LLM_SERVICE_MODEL_PATH:-}"
+LLM_SERVICE_N_GPU_LAYERS="${LLM_SERVICE_N_GPU_LAYERS:--1}"
+LLM_SERVICE_THREADS="${LLM_SERVICE_THREADS:-0}"
+LLM_SERVICE_BATCH_SIZE="${LLM_SERVICE_BATCH_SIZE:-512}"
+LLM_SERVICE_UBATCH_SIZE="${LLM_SERVICE_UBATCH_SIZE:-512}"
+LLM_SERVICE_THREADS_BATCH="${LLM_SERVICE_THREADS_BATCH:-0}"
+LLM_SERVICE_THREADS_HTTP="${LLM_SERVICE_THREADS_HTTP:-8}"
+LLM_SERVICE_PARALLEL_SLOTS="${LLM_SERVICE_PARALLEL_SLOTS:-1}"
+LLM_SERVICE_FLASH_ATTN="${LLM_SERVICE_FLASH_ATTN:-on}"
+LLM_SERVICE_CACHE_REUSE="${LLM_SERVICE_CACHE_REUSE:-256}"
+LLM_SERVICE_DISABLE_WARMUP="${LLM_SERVICE_DISABLE_WARMUP:-true}"
+LLM_SERVICE_DISABLE_WEBUI="${LLM_SERVICE_DISABLE_WEBUI:-true}"
+LLM_SERVICE_EXTRA_ARGS="${LLM_SERVICE_EXTRA_ARGS:-}"
+VLLM_IMAGE="${VLLM_IMAGE:-vllm/vllm-openai-rocm:latest}"
+HF_CACHE="${HF_CACHE:-$HOME/.cache/huggingface}"
 
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
 GATEWAY_PORT="${GATEWAY_PORT:-8765}"
@@ -503,9 +721,10 @@ fi
 
 # ── Выбор Python backend ──────────────────────────────────────────────────────
 # Выбрать Docker-образ для Python-сервисов: GPU (ROCm) или CPU.
+ROCM_DOCKER_GPU_FLAGS="$(build_python_docker_gpu_flags)"
 if [ "${BERT_DEVICE:-cpu}" = "cuda" ]; then
   PYTHON_IMAGE="${PYTHON_IMAGE_GPU}"
-  PYTHON_DOCKER_GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+  PYTHON_DOCKER_GPU_FLAGS="${ROCM_DOCKER_GPU_FLAGS}"
 else
   PYTHON_IMAGE="${PYTHON_IMAGE_CPU}"
 fi
@@ -523,6 +742,32 @@ echo "[start] Python backend: ${PYTHON_BACKEND} (image: ${PYTHON_IMAGE})"
 if $PRINT_CONFIG; then
   cat <<EOF
 POSTGRES_MODE=$POSTGRES_MODE
+LLM_SERVICE_ENABLED=$LLM_SERVICE_ENABLED
+LLM_SERVICE_RUNTIME=$LLM_SERVICE_RUNTIME
+LLM_SERVICE_MODEL=$LLM_SERVICE_MODEL
+LLM_SERVICE_HOST=$LLM_SERVICE_HOST
+LLM_SERVICE_PORT=$LLM_SERVICE_PORT
+LLM_SERVICE_MAX_MODEL_LEN=$LLM_SERVICE_MAX_MODEL_LEN
+LLM_SERVICE_GPU_UTIL=$LLM_SERVICE_GPU_UTIL
+LLM_SERVICE_READY_TIMEOUT_SECONDS=$LLM_SERVICE_READY_TIMEOUT_SECONDS
+THIRD_PASS_LLM_TIMEOUT_MS=$THIRD_PASS_LLM_TIMEOUT_MS
+GATEWAY_JOB_TTL_MS=${GATEWAY_JOB_TTL_MS:-}
+LLM_SERVICE_EXECUTABLE=$LLM_SERVICE_EXECUTABLE
+LLM_SERVICE_MODEL_PATH=$LLM_SERVICE_MODEL_PATH
+LLM_SERVICE_N_GPU_LAYERS=$LLM_SERVICE_N_GPU_LAYERS
+LLM_SERVICE_THREADS=$LLM_SERVICE_THREADS
+LLM_SERVICE_BATCH_SIZE=$LLM_SERVICE_BATCH_SIZE
+LLM_SERVICE_UBATCH_SIZE=$LLM_SERVICE_UBATCH_SIZE
+LLM_SERVICE_THREADS_BATCH=$LLM_SERVICE_THREADS_BATCH
+LLM_SERVICE_THREADS_HTTP=$LLM_SERVICE_THREADS_HTTP
+LLM_SERVICE_PARALLEL_SLOTS=$LLM_SERVICE_PARALLEL_SLOTS
+LLM_SERVICE_FLASH_ATTN=$LLM_SERVICE_FLASH_ATTN
+LLM_SERVICE_CACHE_REUSE=$LLM_SERVICE_CACHE_REUSE
+LLM_SERVICE_DISABLE_WARMUP=$LLM_SERVICE_DISABLE_WARMUP
+LLM_SERVICE_DISABLE_WEBUI=$LLM_SERVICE_DISABLE_WEBUI
+LLM_SERVICE_EXTRA_ARGS=$LLM_SERVICE_EXTRA_ARGS
+VLLM_IMAGE=$VLLM_IMAGE
+HF_CACHE=$HF_CACHE
 GATEWAY_PARSE_BACKEND=$GATEWAY_PARSE_BACKEND
 GATEWAY_LEXICON_BACKEND=$GATEWAY_LEXICON_BACKEND
 GATEWAY_ASSIGNMENTS_BACKEND=$GATEWAY_ASSIGNMENTS_BACKEND
@@ -570,7 +815,25 @@ fi
 if [ "$POSTGRES_MODE" = "1" ] && [ "$START_POSTGRES_VIA_COMPOSE" = "1" ] && ! is_postgres_endpoint_reachable "$POSTGRES_DSN_HOST" "$POSTGRES_DSN_PORT"; then
   require_command docker "Install Docker Engine and ensure the daemon is running."
 fi
+if [ "$LLM_SERVICE_ENABLED" = "true" ]; then
+  case "$LLM_SERVICE_RUNTIME" in
+    vllm)
+      require_command docker "Install Docker Engine and ensure the daemon is running."
+      ;;
+    llama_cpp)
+      assert_llama_cpp_runtime_available
+      ;;
+    *)
+      echo "[start] Unsupported LLM_SERVICE_RUNTIME: $LLM_SERVICE_RUNTIME"
+      echo "[start] Supported values: llama_cpp, vllm"
+      exit 1
+      ;;
+  esac
+fi
 
+if [ "$LLM_SERVICE_ENABLED" = "true" ]; then
+  require_port_free "$LLM_SERVICE_HOST" "$LLM_SERVICE_PORT" "llm-service"
+fi
 require_port_free "$NLP_SERVICE_HOST" "$NLP_SERVICE_PORT" "nlp-service"
 require_port_free "$EXPORT_SERVICE_HOST" "$EXPORT_SERVICE_PORT" "export-service"
 require_port_free "$LEXICON_SERVICE_HOST" "$LEXICON_SERVICE_PORT" "lexicon-service"
@@ -617,12 +880,86 @@ if $DEV_MODE; then
   start_managed_service "frontend dev server on http://${FRONTEND_DEV_HOST}:${FRONTEND_DEV_PORT}" "$local_frontend_command"
 fi
 
+local_llm_base_url="http://127.0.0.1:${LLM_SERVICE_PORT}"
+enable_third_pass_llm_env="false"
+if [ "$LLM_SERVICE_ENABLED" = "true" ]; then
+  case "$LLM_SERVICE_RUNTIME" in
+    vllm)
+      if ! docker image inspect "${VLLM_IMAGE}" >/dev/null 2>&1; then
+        echo "[start] vLLM image '${VLLM_IMAGE}' not found."
+        echo "[start] Pull it once before startup: docker pull ${VLLM_IMAGE}"
+        exit 1
+      fi
+
+      llm_command=""
+      printf -v llm_command \
+        'exec docker run --rm --network host -v %q:/root/.cache/huggingface -e HSA_OVERRIDE_GFX_VERSION=%q %s %q %q --host %q --port %q --quantization fp8 --max-model-len %q --gpu-memory-utilization %q --reasoning-parser qwen3' \
+        "$HF_CACHE" \
+        "${HSA_OVERRIDE_GFX_VERSION:-11.0.0}" \
+        "${ROCM_DOCKER_GPU_FLAGS}" \
+        "${VLLM_IMAGE}" \
+        "${LLM_SERVICE_MODEL}" \
+        "${LLM_SERVICE_HOST}" \
+        "${LLM_SERVICE_PORT}" \
+        "${LLM_SERVICE_MAX_MODEL_LEN}" \
+        "${LLM_SERVICE_GPU_UTIL}"
+      start_managed_service "LLM service (vLLM) on http://${LLM_SERVICE_HOST}:${LLM_SERVICE_PORT}" "$llm_command"
+      ;;
+    llama_cpp)
+      llm_executable_path="$(resolve_executable_for_managed_llm "$LLM_SERVICE_EXECUTABLE")"
+      llm_model_path="$(resolve_path_if_relative "$LLM_SERVICE_MODEL_PATH")"
+      llm_extra_args_segment=""
+      if [ -n "$LLM_SERVICE_EXTRA_ARGS" ]; then
+        llm_extra_args_segment=" ${LLM_SERVICE_EXTRA_ARGS}"
+      fi
+
+      llm_command=""
+      printf -v llm_command \
+        'exec %q --host %q --port %q --model %q --alias %q --ctx-size %q --n-gpu-layers %q --batch-size %q --ubatch-size %q --parallel %q --flash-attn %q' \
+        "$llm_executable_path" \
+        "$LLM_SERVICE_HOST" \
+        "$LLM_SERVICE_PORT" \
+        "$llm_model_path" \
+        "$LLM_SERVICE_MODEL" \
+        "$LLM_SERVICE_MAX_MODEL_LEN" \
+        "$LLM_SERVICE_N_GPU_LAYERS" \
+        "$LLM_SERVICE_BATCH_SIZE" \
+        "$LLM_SERVICE_UBATCH_SIZE" \
+        "$LLM_SERVICE_PARALLEL_SLOTS" \
+        "$LLM_SERVICE_FLASH_ATTN"
+      if [ "${LLM_SERVICE_THREADS}" -gt 0 ]; then
+        printf -v llm_command '%s --threads %q' "$llm_command" "$LLM_SERVICE_THREADS"
+      fi
+      if [ "${LLM_SERVICE_THREADS_BATCH}" -gt 0 ]; then
+        printf -v llm_command '%s --threads-batch %q' "$llm_command" "$LLM_SERVICE_THREADS_BATCH"
+      fi
+      if [ "${LLM_SERVICE_THREADS_HTTP}" -gt 0 ]; then
+        printf -v llm_command '%s --threads-http %q' "$llm_command" "$LLM_SERVICE_THREADS_HTTP"
+      fi
+      if [ "${LLM_SERVICE_CACHE_REUSE}" -gt 0 ]; then
+        printf -v llm_command '%s --cache-reuse %q' "$llm_command" "$LLM_SERVICE_CACHE_REUSE"
+      fi
+      if [ "$LLM_SERVICE_DISABLE_WARMUP" = "true" ]; then
+        llm_command="${llm_command} --no-warmup"
+      fi
+      if [ "$LLM_SERVICE_DISABLE_WEBUI" = "true" ]; then
+        llm_command="${llm_command} --no-webui"
+      fi
+      llm_command="${llm_command}${llm_extra_args_segment}"
+      start_managed_service "LLM service (llama.cpp) on http://${LLM_SERVICE_HOST}:${LLM_SERVICE_PORT}" "$llm_command"
+      ;;
+  esac
+
+  wait_for_llm_ready "LLM service" "${local_llm_base_url}" "${LLM_SERVICE_READY_TIMEOUT_SECONDS}"
+  enable_third_pass_llm_env="true"
+fi
+
 nlp_command=""
 if [ "${PYTHON_BACKEND}" = "docker" ]; then
   # Docker-режим: все Python-зависимости внутри образа, исходный код монтируется.
   # GPU-флаги добавляются только при BERT_DEVICE=cuda.
   printf -v nlp_command \
-    'exec docker run --rm --network host -v %q:/app -e LEXICON_SERVICE_HOST=%q -e LEXICON_SERVICE_PORT=%q -e NLP_SERVICE_HOST=%q -e NLP_SERVICE_PORT=%q -e BERT_DEVICE=%q -e BERT_MODEL_NAME=%q -e BERT_LOCAL_FILES_ONLY=true -e BERT_TIMEOUT_MS=%q -e HSA_OVERRIDE_GFX_VERSION=%q -e TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=%q -e TOKENIZERS_PARALLELISM=false %s %q python3 -m backend.python_services.nlp_service.main' \
+    'exec docker run --rm --network host -v %q:/app -e LEXICON_SERVICE_HOST=%q -e LEXICON_SERVICE_PORT=%q -e NLP_SERVICE_HOST=%q -e NLP_SERVICE_PORT=%q -e BERT_DEVICE=%q -e BERT_MODEL_NAME=%q -e BERT_LOCAL_FILES_ONLY=true -e BERT_TIMEOUT_MS=%q -e ENABLE_THIRD_PASS_LLM=%q -e THIRD_PASS_LLM_BASE_URL=%q -e THIRD_PASS_LLM_MODEL=%q -e THIRD_PASS_LLM_TIMEOUT_MS=%q -e LLAMA_SERVER_AUTOSTART_ENABLED=false -e HSA_OVERRIDE_GFX_VERSION=%q -e TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=%q -e TOKENIZERS_PARALLELISM=false %s %q python3 -m backend.python_services.nlp_service.main' \
     "$SCRIPT_DIR" \
     "$LEXICON_SERVICE_HOST" \
     "$LEXICON_SERVICE_PORT" \
@@ -631,13 +968,17 @@ if [ "${PYTHON_BACKEND}" = "docker" ]; then
     "${BERT_DEVICE:-cpu}" \
     "${BERT_MODEL_NAME:-string_similarity}" \
     "${BERT_TIMEOUT_MS:-12000}" \
+    "${enable_third_pass_llm_env}" \
+    "${local_llm_base_url}" \
+    "${LLM_SERVICE_MODEL}" \
+    "${THIRD_PASS_LLM_TIMEOUT_MS}" \
     "${HSA_OVERRIDE_GFX_VERSION:-}" \
     "${TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL:-0}" \
     "${PYTHON_DOCKER_GPU_FLAGS}" \
     "${PYTHON_IMAGE}"
 else
   printf -v nlp_command \
-    'cd %q && exec env LEXICON_SERVICE_HOST=%q LEXICON_SERVICE_PORT=%q NLP_SERVICE_HOST=%q NLP_SERVICE_PORT=%q BERT_DEVICE=%q BERT_MODEL_NAME=%q BERT_LOCAL_FILES_ONLY=%q BERT_TIMEOUT_MS=%q HSA_OVERRIDE_GFX_VERSION=%q TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=%q TOKENIZERS_PARALLELISM=false python3 -m backend.python_services.nlp_service.main' \
+    'cd %q && exec env LEXICON_SERVICE_HOST=%q LEXICON_SERVICE_PORT=%q NLP_SERVICE_HOST=%q NLP_SERVICE_PORT=%q BERT_DEVICE=%q BERT_MODEL_NAME=%q BERT_LOCAL_FILES_ONLY=%q BERT_TIMEOUT_MS=%q ENABLE_THIRD_PASS_LLM=%q THIRD_PASS_LLM_BASE_URL=%q THIRD_PASS_LLM_MODEL=%q THIRD_PASS_LLM_TIMEOUT_MS=%q LLAMA_SERVER_AUTOSTART_ENABLED=false HSA_OVERRIDE_GFX_VERSION=%q TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=%q TOKENIZERS_PARALLELISM=false python3 -m backend.python_services.nlp_service.main' \
     "$SCRIPT_DIR" \
     "$LEXICON_SERVICE_HOST" \
     "$LEXICON_SERVICE_PORT" \
@@ -647,6 +988,10 @@ else
     "${BERT_MODEL_NAME:-string_similarity}" \
     "${BERT_LOCAL_FILES_ONLY:-true}" \
     "${BERT_TIMEOUT_MS:-12000}" \
+    "${enable_third_pass_llm_env}" \
+    "${local_llm_base_url}" \
+    "${LLM_SERVICE_MODEL}" \
+    "${THIRD_PASS_LLM_TIMEOUT_MS}" \
     "${HSA_OVERRIDE_GFX_VERSION:-}" \
     "${TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL:-0}"
 fi
