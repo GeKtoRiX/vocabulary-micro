@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.config import PipelineSettings
 
 from .text_utils import TOKEN_PATTERN, normalize_whitespace
 from .tokenizer import TokenizerStage

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.domain.services import MweDetector, MweExpressionContext, MweTokenContext
+from backend.python_services.core.domain.services import MweDetector, MweExpressionContext, MweTokenContext
 
 
 def _token(

@@ -197,6 +197,20 @@ def _imports_for_file(path: Path) -> list[tuple[str, int]]:
     return imports
 
 
+def _is_forbidden_core_import(module_name: str, forbidden_roots: set[str]) -> bool:
+    root_name = module_name.split(".", 1)[0]
+    if root_name in forbidden_roots:
+        return True
+    return module_name.startswith("backend.python_services.infrastructure")
+
+
+def _is_forbidden_ui_import(module_name: str) -> bool:
+    root_name = module_name.split(".", 1)[0]
+    if root_name == "infrastructure":
+        return True
+    return module_name.startswith("backend.python_services.infrastructure")
+
+
 def audit_import_boundaries(args: BoundaryAuditInput) -> dict[str, Any]:
     """Audit canonical Python core/frontend import boundaries via static AST inspection.
 
@@ -216,15 +230,13 @@ def audit_import_boundaries(args: BoundaryAuditInput) -> dict[str, Any]:
     forbidden = set(args.forbidden_core_roots)
     for file_path in _python_files(core_root):
         for module_name, line in _imports_for_file(file_path):
-            root_name = module_name.split(".", 1)[0]
-            if root_name in forbidden:
+            if _is_forbidden_core_import(module_name, forbidden):
                 rel = file_path.relative_to(root).as_posix()
                 core_violations.append(f"{rel}:{line} imports {module_name}")
 
     for file_path in _python_files(ui_root):
         for module_name, line in _imports_for_file(file_path):
-            root_name = module_name.split(".", 1)[0]
-            if root_name == "infrastructure":
+            if _is_forbidden_ui_import(module_name):
                 rel = file_path.relative_to(root).as_posix()
                 ui_violations.append(f"{rel}:{line} imports {module_name}")
 

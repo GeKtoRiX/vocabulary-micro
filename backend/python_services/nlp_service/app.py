@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from infrastructure.sqlite.assignment_sentence_extractor import AssignmentSentenceExtractor
+from backend.python_services.infrastructure.nlp.assignment_sentence_extractor import AssignmentSentenceExtractor
 from backend.python_services.nlp_service.components import build_nlp_components
 
 

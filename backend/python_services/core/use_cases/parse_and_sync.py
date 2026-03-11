@@ -3,20 +3,20 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
-from core.domain import ParseAndSyncResultDTO, ParseRowSyncResultDTO, Result
-from core.domain import (
+from backend.python_services.core.domain import ParseAndSyncResultDTO, ParseRowSyncResultDTO, Result
+from backend.python_services.core.domain import (
     ICategoryRepository,
     ILexiconRepository,
     ILoggingService,
     ParseSyncSettings,
 )
-import core.domain.reason_codes as domain_reasons
-from core.domain.services import ISyncQueue, TextProcessor
-from core.use_cases._base import BaseInteractor
-from core.use_cases.async_sync_queue_builder import AsyncSyncQueueBuilder, SyncQueueFactory
-from core.use_cases.parse_sync_candidate_resolver import SyncCandidateResolver
-from core.use_cases.parse_table_builder import ParseTableBuilder
-from core.use_cases.third_pass_orchestrator import ThirdPassOrchestrator
+import backend.python_services.core.domain.reason_codes as domain_reasons
+from backend.python_services.core.domain.services import ISyncQueue, TextProcessor
+from backend.python_services.core.use_cases._base import BaseInteractor
+from backend.python_services.core.use_cases.async_sync_queue_builder import AsyncSyncQueueBuilder, SyncQueueFactory
+from backend.python_services.core.use_cases.parse_sync_candidate_resolver import SyncCandidateResolver
+from backend.python_services.core.use_cases.parse_table_builder import ParseTableBuilder
+from backend.python_services.core.use_cases.third_pass_orchestrator import ThirdPassOrchestrator
 
 SUMMARY_SCHEMA_VERSION = 1
 SECOND_PASS_SCHEMA_VERSION = 1

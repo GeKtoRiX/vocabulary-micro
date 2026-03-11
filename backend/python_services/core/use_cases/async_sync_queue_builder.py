@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from core.domain import ILoggingService, ParseSyncSettings
-from core.domain.services import AsyncSyncJob, AsyncSyncQueue, ISyncQueue
+from backend.python_services.core.domain import ILoggingService, ParseSyncSettings
+from backend.python_services.core.domain.services import AsyncSyncJob, AsyncSyncQueue, ISyncQueue
 
 SyncQueueFactory = Callable[
     [Callable[[AsyncSyncJob], dict[str, object]], ParseSyncSettings, ILoggingService | None, str],

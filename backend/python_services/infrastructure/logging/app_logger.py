@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from core.domain import ILoggingService
+from backend.python_services.core.domain import ILoggingService
 
 
 DEFAULT_MAX_LOG_BYTES = 10 * 1024 * 1024

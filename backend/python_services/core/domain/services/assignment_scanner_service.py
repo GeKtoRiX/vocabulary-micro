@@ -6,7 +6,7 @@ import re
 import time
 from typing import Protocol
 
-from core.domain import (
+from backend.python_services.core.domain import (
     AssignmentDiffChunk,
     AssignmentLexiconMatch,
     AssignmentMissingWord,
@@ -16,7 +16,7 @@ from core.domain import (
     LexiconSearchResult,
     Result,
 )
-from core.domain.services.text_processor import DEFAULT_TEXT_PROCESSOR
+from backend.python_services.core.domain.services.text_processor import DEFAULT_TEXT_PROCESSOR
 
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)?")

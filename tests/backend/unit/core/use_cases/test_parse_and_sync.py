@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import core.domain.reason_codes as domain_reasons
+import backend.python_services.core.domain.reason_codes as domain_reasons
 
-from core.domain import ParseAndSyncResultDTO, ParseRowSyncResultDTO
-from core.use_cases.parse_and_sync import ParseAndSyncInteractor, ParseSyncSettings
+from backend.python_services.core.domain import ParseAndSyncResultDTO, ParseRowSyncResultDTO
+from backend.python_services.core.use_cases.parse_and_sync import ParseAndSyncInteractor, ParseSyncSettings
 
 
 def test_execute_returns_error_dto_for_empty_text(
@@ -1120,9 +1120,9 @@ def test_execute_uses_persistent_queue_factory_when_enabled(
             enable_third_pass_llm=False,
             async_sync_enabled=True,
             async_sync_persistent_enabled=True,
-            async_sync_queue_db_path="sync_queue.sqlite3",
+            async_sync_queue_db_path="sync_queue.store",
         ),
-        source_label="D:/worlds/infrastructure/persistence/data/lexicon.sqlite3",
+        source_label="D:/worlds/infrastructure/persistence/data/lexicon-store",
         sync_queue_factory=_factory,
     )
 

@@ -18,7 +18,7 @@ class ParseSyncSettings:
     async_sync_enabled: bool = False
     async_sync_queue_size: int = 256
     async_sync_worker_count: int = 1
-    async_sync_queue_db_path: str = "sync_queue.sqlite3"
+    async_sync_queue_db_path: str = "sync_queue.store"
     async_sync_max_attempts: int = 3
     async_sync_poll_interval_ms: int = 150
     api_reject_status_code: int = 503

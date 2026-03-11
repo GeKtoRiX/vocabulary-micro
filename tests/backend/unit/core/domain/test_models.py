@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.domain import (
+from backend.python_services.core.domain import (
     LexiconEntryRecord,
     LexiconSearchResult,
     ParseRequest,

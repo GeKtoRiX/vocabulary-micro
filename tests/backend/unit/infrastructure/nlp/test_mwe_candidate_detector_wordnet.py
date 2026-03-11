@@ -5,11 +5,11 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
-from core.domain.services import MweExpressionContext, MweTokenContext
-from infrastructure.config import PipelineSettings
-import infrastructure.sqlite.mwe_candidate_detector as detector_module
-from infrastructure.sqlite.mwe_candidate_detector import MweCandidateDetector
-from infrastructure.sqlite.mwe_index_provider import MweExpressionRecord, MweIndexSnapshot
+from backend.python_services.core.domain.services import MweExpressionContext, MweTokenContext
+from backend.python_services.infrastructure.config import PipelineSettings
+import backend.python_services.infrastructure.nlp.mwe_candidate_detector as detector_module
+from backend.python_services.infrastructure.nlp.mwe_candidate_detector import MweCandidateDetector
+from backend.python_services.infrastructure.nlp.mwe_index_provider import MweExpressionRecord, MweIndexSnapshot
 
 
 def _token(

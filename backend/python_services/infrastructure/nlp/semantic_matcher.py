@@ -8,8 +8,8 @@ from threading import RLock
 import time
 from typing import Any, List
 
-from core.domain import TokenRecord
-from infrastructure.config import PipelineSettings
+from backend.python_services.core.domain import TokenRecord
+from backend.python_services.infrastructure.config import PipelineSettings
 
 from .index_provider import LexiconIndexSnapshot
 

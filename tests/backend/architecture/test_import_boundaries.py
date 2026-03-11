@@ -36,7 +36,7 @@ def test_core_dependency_rule() -> None:
     for file_path in _python_files(CORE_ROOT):
         for module_name, line in _imports_for_file(file_path):
             root_name = module_name.split(".", 1)[0]
-            if root_name in forbidden_roots:
+            if root_name in forbidden_roots or module_name.startswith("backend.python_services.infrastructure"):
                 relative = file_path.relative_to(REPO_ROOT).as_posix()
                 violations.append(f"{relative}:{line} imports {module_name}")
     assert not violations, "backend/python_services/core violates dependency rule:\n" + "\n".join(violations)

@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from core.domain import (
+from backend.python_services.core.domain import (
     CategoryMutationResult,
     ICategoryRepository,
     ILexiconRepository,
@@ -20,12 +20,12 @@ from core.domain import (
     LexiconSearchResult,
     LexiconUpdateRequest,
 )
-from infrastructure.adapters.llm_third_pass import LlmThirdPassExtractor
-from infrastructure.config import PipelineSettings
-from infrastructure.sqlite.lexicon_engine import LexiconEngine
-from infrastructure.sqlite.mwe_index_provider import MweIndexProvider
-from infrastructure.sqlite.mwe_second_pass_engine import MweSecondPassEngine
-from infrastructure.sqlite.table_models import LexiconEntry
+from backend.python_services.infrastructure.adapters.llm_third_pass import LlmThirdPassExtractor
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.nlp.lexicon_engine import LexiconEngine
+from backend.python_services.infrastructure.nlp.mwe_index_provider import MweIndexProvider
+from backend.python_services.infrastructure.nlp.mwe_second_pass_engine import MweSecondPassEngine
+from backend.python_services.infrastructure.nlp.table_models import LexiconEntry
 
 
 @dataclass(frozen=True)

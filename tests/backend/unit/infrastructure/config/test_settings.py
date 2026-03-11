@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from core.domain import ParseSyncSettings
-from infrastructure.config.settings import PipelineSettings
+from backend.python_services.core.domain import ParseSyncSettings
+from backend.python_services.infrastructure.config.settings import PipelineSettings
 
 
 def test_pipeline_settings_from_env_reads_values(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,7 +43,7 @@ def test_pipeline_settings_to_parse_sync_settings_clamps_limits(
         async_sync_enabled=True,
         async_sync_queue_size=0,
         async_sync_worker_count=0,
-        async_sync_queue_db_path="sync.sqlite3",
+        async_sync_queue_db_path="sync.store",
         async_sync_max_attempts=0,
         async_sync_poll_interval_ms=1,
         api_reject_status_code=429,

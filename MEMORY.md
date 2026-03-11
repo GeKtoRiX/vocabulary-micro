@@ -8,7 +8,6 @@
 - Архитектурная модель: Clean Architecture с жёсткими границами между `backend/python_services/core`, `backend/python_services/infrastructure`, `frontend`, `backend/services`, `backend/python_services/*_service`.
 - Канонический Python domain/use case слой живёт в `backend/python_services/core`.
 - Канонический Python adapters/runtime/config/logging слой живёт в `backend/python_services/infrastructure`.
-- Root `core` и `infrastructure` сохранены как compatibility shim packages для исторических импортов.
 - `backend/services/api-gateway`, `backend/services/lexicon-service`, `backend/services/assignments-service` образуют migration slice для owner-services.
 - `backend/python_services/nlp_service/app.py` и `backend/python_services/export_service/app.py` выступают внутренними capability API.
 
@@ -39,6 +38,14 @@
 - Проверка инструментов: `python3 -m pytest -q tests/governance/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-11` — Финальные SQL naming-хвосты в Python runtime сведены к минимуму без ломки публичного `core`-контракта: корневые shim-каталоги `core/` и `infrastructure/` физически удалены, мёртвые `sqlite_*` настройки вырезаны из `PipelineSettings`, а нейтральные store-имена заменили `.sqlite3` defaults там, где это не меняет API.
+  Зачем: после перехода на канонические импорты и Postgres-only owner-services оставшиеся SQL-имена путали навигацию и создавали видимость ещё живого SQLite runtime; при этом поле `async_sync_queue_db_path` сохранено как есть, чтобы не ломать существующий `core`-контракт без отдельного запроса.
+- `2026-03-11` — Root shim packages `core/` и `infrastructure/` удалены, а Python runtime/tests переведены на прямые импорты `backend.python_services.core.*` и `backend.python_services.infrastructure.*`.
+  Зачем: после завершения переноса shared-layer кода в `backend/python_services/` compatibility-слой стал только скрывать реальные зависимости и ослаблял архитектурный аудит; прямые канонические импорты делают структуру явной и позволяют убрать лишний корневой namespace.
+- `2026-03-11` — Исторический Python namespace `backend/python_services/infrastructure/sqlite/` переименован в `backend/python_services/infrastructure/nlp/`, а runtime/tests переведены на импорты `infrastructure.nlp.*`.
+  Зачем: после удаления фактического SQLite storage старое имя `sqlite` стало вводить в заблуждение и мешало дальнейшему вырезанию SQL-следов; нейтральный namespace точнее отражает текущую роль пакета как набора NLP/search helper-модулей.
+- `2026-03-11` — Из Python runtime удалён мёртвый SQLite storage-слой: `SqliteLexicon` и связанные `sqlite3` helper-функции вырезаны, `PipelineSettings` больше не несёт неиспользуемый `assignments_db_path`, а warmup probe больше не маскируется под `.sqlite3`.
+  Зачем: после перевода owner-services на Postgres фактический SQLite storage в Python-контуре остался мёртвым кодом и создавал ложное впечатление о существующем втором persistence path; удаление снижает техдолг без изменения текущего рабочего runtime.
 - `2026-03-11` — Legacy SQLite backend вырезан из owner-services runtime: `loadConfig`, `start.sh`, `docker-compose.yml`, env templates и TypeScript service app factory теперь поддерживают только Postgres для `lexicon-service` и `assignments-service`.
   Зачем: держать два параллельных owner-storage path (`sqlite` и `postgres`) стало дороже, чем польза от dev-fallback; Postgres уже является целевым и основным runtime, а сохранение legacy toggle усложняло запуск, тесты и документацию.
 - `2026-03-11` — Лимиты long-text third-pass подняты до `4096`: Python pipeline теперь принимает до `4096` входных токенов, а third-pass LLM generation budget тоже увеличен до `4096`.
@@ -67,8 +74,8 @@
   Зачем: отделить тяжёлые сетевые скачивания и сборку от startup-path, чтобы `docker compose up` и `start.sh --postgres` использовали только уже подготовленные локальные образы и поднимались без сетевой активности.
 - `2026-03-10` — `start.sh --postgres` переведён в self-contained bootstrap: при локальном DSN (`127.0.0.1` / `localhost`) он сам поднимает `docker compose` сервис `postgres` и ждёт `healthy` перед стартом application-слоя, но если Postgres уже доступен по заданному DSN, compose-autostart пропускается.
   Зачем: убрать ручной двухшаговый запуск “сначала база, потом start.sh”, сделать production-like Postgres path воспроизводимым одной командой и одновременно не ломать сценарии с уже поднятым внешним/тестовым Postgres на локальном хосте.
-- `2026-03-10` — Канонические shared-layer каталоги Python перенесены в `backend/python_services/{core,infrastructure}`, а root `core/` и `infrastructure/` оставлены как compatibility shim packages.
-  Зачем: закончить структурное разведение backend-кода, собрать весь Python runtime под `backend/python_services/` и при этом не ломать существующие импорты `core.*` / `infrastructure.*`, тесты и runtime contracts.
+- `2026-03-10` — Канонические shared-layer каталоги Python перенесены в `backend/python_services/{core,infrastructure}`, а на переходном этапе root `core/` и `infrastructure/` были оставлены как compatibility shim packages.
+  Зачем: это позволило закончить структурное разведение backend-кода и перевести runtime по шагам; позже shims были удалены после миграции импортов на канонические пути.
 - `2026-03-10` — Agent/tooling implementation сгруппирован в `agents/`, а тестовый контур разложен на `tests/backend/` и `tests/governance/`; root `tools.py` и `skills/` оставлены как compatibility entrypoints.
   Зачем: отделить продуктовые тесты от governance-проверок, собрать агентный implementation-контур в одном месте и одновременно не ломать существующие импорты, автозагрузку и локальные workflow.
 - `2026-03-10` — Топология репозитория нормализована вокруг явных границ `frontend/` и `backend/`: SPA перенесён в `frontend/`, TypeScript owner-services в `backend/services/`, а Python capability-runtime сгруппирован в `backend/python_services/{nlp_service,export_service}` с отдельными `main.py`.

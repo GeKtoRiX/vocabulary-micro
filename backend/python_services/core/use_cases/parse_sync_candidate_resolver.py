@@ -3,9 +3,9 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from core.domain import ICategoryRepository, ILexiconRepository, ParseSyncSettings
-import core.domain.reason_codes as domain_reasons
-from core.domain.services import AsyncSyncJob, ISyncQueue, POS_CATEGORY_HINTS, TextProcessor
+from backend.python_services.core.domain import ICategoryRepository, ILexiconRepository, ParseSyncSettings
+import backend.python_services.core.domain.reason_codes as domain_reasons
+from backend.python_services.core.domain.services import AsyncSyncJob, ISyncQueue, POS_CATEGORY_HINTS, TextProcessor
 
 
 AUTO_CREATE_SYNC_CATEGORIES = set(POS_CATEGORY_HINTS.values()) | {"Idiom", "Phrasal Verb"}

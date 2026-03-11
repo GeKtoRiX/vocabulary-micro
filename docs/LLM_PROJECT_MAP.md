@@ -35,8 +35,6 @@ backend/python_services/core/              — canonical Python domain/use case 
 backend/python_services/infrastructure/    — canonical Python adapters/runtime/config layer
 backend/python_services/nlp_service/       — Python NLP capability API
 backend/python_services/export_service/    — Python export capability API
-core/                                      — compatibility shim for historical `core.*` imports
-infrastructure/                            — compatibility shim for historical `infrastructure.*` imports
 scripts/                                   — local/dev/bootstrap helpers
 docs/                                      — project maps and operator guides
 tests/backend/                             — product runtime/unit/integration/service tests
@@ -115,12 +113,10 @@ Path aliases: `@app → ./src/app`, `@features → ./src/features`, `@shared →
 ### Infrastructure Layer
 
 - `backend/python_services/infrastructure/adapters/` — HTTP and runtime adapters
-- `backend/python_services/infrastructure/sqlite/` — SQLite-backed NLP/search helpers and table models
+- `backend/python_services/infrastructure/nlp/` — NLP/search helpers and table models
 - `backend/python_services/infrastructure/bootstrap/` — warmup state machine and optional llama.cpp runtime
 - `backend/python_services/infrastructure/logging/` — logging, metrics, tracing
-- `backend/python_services/infrastructure/persistence/data/` — default SQLite files
-
-Root `core` and `infrastructure` remain only as compatibility shim packages so historical imports continue to work while the canonical implementation lives under `backend/python_services/`.
+- `backend/python_services/infrastructure/persistence/data/` — runtime data directory
 
 ## 7) Backend Service Layer
 
@@ -152,7 +148,7 @@ Root `core` and `infrastructure` remain only as compatibility shim packages so h
 
 ### 9.2 Assignment flow
 
-- storage isolation: assignments in `assignments.db`
+- storage isolation: assignments stay inside the Postgres owner-service boundary
 - scanner path is search-only (`AssignmentScannerService`)
 - sync bridge path is explicit (`assignment_sync_use_case`)
 - operation order: `sync -> scan`

@@ -4,8 +4,8 @@ from collections import OrderedDict
 from threading import RLock
 from typing import Iterable
 
-from core.domain import TokenRecord
-from infrastructure.config import PipelineSettings
+from backend.python_services.core.domain import TokenRecord
+from backend.python_services.infrastructure.config import PipelineSettings
 
 from .text_utils import TOKEN_PATTERN, looks_like_weird_unicode, normalize_whitespace
 

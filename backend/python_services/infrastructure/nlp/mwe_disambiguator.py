@@ -2,8 +2,8 @@
 
 from typing import Sequence
 
-from infrastructure.sqlite.mwe_models import MweCandidate, MweOccurrence, SenseChoice
-from infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.nlp.mwe_models import MweCandidate, MweOccurrence, SenseChoice
+from backend.python_services.infrastructure.config import PipelineSettings
 
 from .mwe_index_provider import MweIndexSnapshot
 

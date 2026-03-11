@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 
-from infrastructure.config.env_readers import (
+from backend.python_services.infrastructure.config.env_readers import (
     read_bool as _read_bool,
     read_float as _read_float,
     read_int as _read_int,
@@ -37,8 +37,7 @@ class PipelineSettings:
     async_sync_persistent_enabled: bool = False
     async_sync_queue_size: int = 256
     async_sync_worker_count: int = 1
-    async_sync_queue_db_path: str = "sync_queue.sqlite3"
-    assignments_db_path: str = "assignments.db"
+    async_sync_queue_db_path: str = "sync_queue.store"
     async_sync_max_attempts: int = 3
     async_sync_poll_interval_ms: int = 150
     bert_model_name: str = field(default_factory=_default_bert_model_name)
@@ -70,8 +69,6 @@ class PipelineSettings:
     max_unknown_tokens_for_wordnet: int = 512
     max_unknown_tokens_for_bert: int = 128
     max_bert_candidates: int = 1_000
-    sqlite_busy_timeout_ms: int = 5_000
-    sqlite_wal_enabled: bool = True
     index_rebuild_debounce_seconds: float = 0.0
     api_queue_max_size: int = 128
     api_reject_status_code: int = 503
@@ -135,7 +132,6 @@ class PipelineSettings:
             async_sync_queue_size=_read_int("ASYNC_SYNC_QUEUE_SIZE", cls.async_sync_queue_size),
             async_sync_worker_count=_read_int("ASYNC_SYNC_WORKER_COUNT", cls.async_sync_worker_count),
             async_sync_queue_db_path=_read_str("ASYNC_SYNC_QUEUE_DB_PATH", cls.async_sync_queue_db_path),
-            assignments_db_path=_read_str("ASSIGNMENTS_DB_PATH", cls.assignments_db_path),
             async_sync_max_attempts=_read_int("ASYNC_SYNC_MAX_ATTEMPTS", cls.async_sync_max_attempts),
             async_sync_poll_interval_ms=_read_int(
                 "ASYNC_SYNC_POLL_INTERVAL_MS",
@@ -191,8 +187,6 @@ class PipelineSettings:
                 cls.max_unknown_tokens_for_bert,
             ),
             max_bert_candidates=_read_int("MAX_BERT_CANDIDATES", cls.max_bert_candidates),
-            sqlite_busy_timeout_ms=_read_int("SQLITE_BUSY_TIMEOUT_MS", cls.sqlite_busy_timeout_ms),
-            sqlite_wal_enabled=_read_bool("SQLITE_WAL_ENABLED", cls.sqlite_wal_enabled),
             index_rebuild_debounce_seconds=_read_float(
                 "INDEX_REBUILD_DEBOUNCE_SECONDS",
                 cls.index_rebuild_debounce_seconds,
@@ -351,7 +345,7 @@ class PipelineSettings:
         )
 
     def to_parse_sync_settings(self) -> "ParseSyncSettings":
-        from core.domain import ParseSyncSettings
+        from backend.python_services.core.domain import ParseSyncSettings
 
         return ParseSyncSettings(
             auto_sync_enabled=self.auto_sync_enabled,

@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from infrastructure.config import PipelineSettings
-from infrastructure.sqlite.mwe_models import SecondPassSummary
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.nlp.mwe_models import SecondPassSummary
 
 from .mwe_candidate_detector import MweCandidateDetector
 from .mwe_disambiguator import MweDisambiguator
@@ -169,4 +169,3 @@ class MweSecondPassEngine:
 
     def release_request_resources(self, request_id: str | None) -> None:
         self._detector.release_request_cache(request_id)
-

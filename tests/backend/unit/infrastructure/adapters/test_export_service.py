@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from core.domain import ExportRequest
-from infrastructure.adapters.http_export_service import HttpLexiconExportService
+from backend.python_services.core.domain import ExportRequest
+from backend.python_services.infrastructure.adapters.http_export_service import HttpLexiconExportService
 
 
 def test_http_export_to_excel_generates_workbook_from_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import create_autospec
 import pytest
 
-from core.domain import (
+from backend.python_services.core.domain import (
     CategoryMutationResult,
     ICategoryRepository,
     ILexiconRepository,

@@ -17,11 +17,11 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from infrastructure.config import PipelineSettings
-from infrastructure.sqlite.index_provider import LexiconIndexSnapshot
-from core.domain import TokenRecord
-from infrastructure.sqlite.phrase_matcher import PhraseTrieMatcher
-from infrastructure.sqlite.semantic_matcher import SemanticMatcherStage
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.nlp.index_provider import LexiconIndexSnapshot
+from backend.python_services.core.domain import TokenRecord
+from backend.python_services.infrastructure.nlp.phrase_matcher import PhraseTrieMatcher
+from backend.python_services.infrastructure.nlp.semantic_matcher import SemanticMatcherStage
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ class TestTryLoadModel:
 
     def test_model_load_error_stored_as_unavailable_reason(self):
         with patch(
-            "infrastructure.sqlite.semantic_matcher._SentenceTransformer",
+            "backend.python_services.infrastructure.nlp.semantic_matcher._SentenceTransformer",
             side_effect=OSError("model not found"),
         ):
             stage = SemanticMatcherStage(
@@ -270,7 +270,7 @@ class TestTryLoadModel:
 
     def test_model_loaded_when_sentence_transformers_unavailable_falls_back(self):
         with patch(
-            "infrastructure.sqlite.semantic_matcher._SentenceTransformer",
+            "backend.python_services.infrastructure.nlp.semantic_matcher._SentenceTransformer",
             None,
         ):
             stage = SemanticMatcherStage(
@@ -298,4 +298,3 @@ class TestClose:
 
         assert stage._model is None
         assert len(stage._embedding_cache) == 0
-

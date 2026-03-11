@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from infrastructure.bootstrap.llama_server_runtime import LlamaCppServerManager
-from infrastructure.config.settings import PipelineSettings
+from backend.python_services.infrastructure.bootstrap.llama_server_runtime import LlamaCppServerManager
+from backend.python_services.infrastructure.config.settings import PipelineSettings
 
 
 class _LoggerStub:

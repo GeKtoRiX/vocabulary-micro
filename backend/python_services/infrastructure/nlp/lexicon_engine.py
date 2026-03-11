@@ -6,10 +6,10 @@ import time
 import uuid
 from typing import Dict, List, Tuple
 
-from core.domain import PipelineStats, StageStatus, TokenRecord
-from core.domain.services import POS_CATEGORY_HINTS
-from infrastructure.config import PipelineSettings
-from infrastructure.logging import get_logger, get_metrics_registry, get_tracer, log_event, start_span
+from backend.python_services.core.domain import PipelineStats, StageStatus, TokenRecord
+from backend.python_services.core.domain.services import POS_CATEGORY_HINTS
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.logging import get_logger, get_metrics_registry, get_tracer, log_event, start_span
 
 from .exact_matcher import ExactMatcherStage
 from .index_provider import LexiconIndexProvider, LexiconIndexSnapshot
@@ -132,7 +132,7 @@ class LexiconEngine:
                 "async_sync_persistent_enabled": self.settings.async_sync_persistent_enabled,
                 "async_sync_queue_size": self.settings.async_sync_queue_size,
                 "async_sync_worker_count": self.settings.async_sync_worker_count,
-                "async_sync_queue_db_path": self.settings.async_sync_queue_db_path,
+                "async_sync_queue_path": self.settings.async_sync_queue_db_path,
                 "bert_out_of_process_enabled": self.settings.bert_out_of_process_enabled,
                 "bert_ipc_host": self.settings.bert_ipc_host,
                 "bert_ipc_port": self.settings.bert_ipc_port,
@@ -579,5 +579,4 @@ class LexiconEngine:
 
 
 __all__ = ["LexiconEngine", "LexiconEntry", "normalize_whitespace"]
-
 

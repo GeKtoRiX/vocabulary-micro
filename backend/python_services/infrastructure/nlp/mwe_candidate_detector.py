@@ -6,9 +6,9 @@ from threading import RLock
 
 import numpy as np
 
-from core.domain.services import MweDetector, MweExpressionContext, MweTokenContext
-from infrastructure.config import PipelineSettings
-from infrastructure.sqlite.mwe_models import MweCandidate
+from backend.python_services.core.domain.services import MweDetector, MweExpressionContext, MweTokenContext
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.nlp.mwe_models import MweCandidate
 
 from .mwe_index_provider import MweIndexSnapshot
 

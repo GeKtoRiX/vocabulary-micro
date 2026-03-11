@@ -8,8 +8,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from core.domain import ExportRequest
-from infrastructure.adapters.http_export_service import HttpLexiconExportService
+from backend.python_services.core.domain import ExportRequest
+from backend.python_services.infrastructure.adapters.http_export_service import HttpLexiconExportService
 
 
 app = FastAPI(title="Vocabulary Export Service")

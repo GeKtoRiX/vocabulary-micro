@@ -114,8 +114,6 @@ frontend/                React 19 + Vite 7 SPA — Feature-Sliced Design
   src/shared/            ui/, hooks/, api/, utils/, styles/
 backend/services/        TypeScript gateway and boundary microservices
 backend/python_services/ internal Python capability APIs + shared Python runtime
-core/                    compatibility shim package for historical `core.*` imports
-infrastructure/          compatibility shim package for historical `infrastructure.*` imports
 scripts/lib/             shared shell helpers (net.py — TCP/HTTP/LLM probes)
 agents/                  agent tooling and local skills implementation
 tests/backend/           backend/runtime/unit/integration test suites

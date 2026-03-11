@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-import infrastructure.adapters.llm_third_pass as llm_third_pass_module
-from infrastructure.adapters.llm_third_pass import LlmThirdPassExtractor
-from infrastructure.config import PipelineSettings
+import backend.python_services.infrastructure.adapters.llm_third_pass as llm_third_pass_module
+from backend.python_services.infrastructure.adapters.llm_third_pass import LlmThirdPassExtractor
+from backend.python_services.infrastructure.config import PipelineSettings
 
 
 class _FakeStreamingResponse:

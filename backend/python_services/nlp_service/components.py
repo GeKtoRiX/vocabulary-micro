@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.use_cases import ParseAndSyncInteractor
-from infrastructure.adapters import HttpLexiconGateway
-from infrastructure.bootstrap.initialization_coordinator import InitializationCoordinator
-from infrastructure.bootstrap.llama_server_runtime import LlamaCppServerManager
-from infrastructure.config import PipelineSettings
-from infrastructure.logging import AppLoggingService
+from backend.python_services.core.use_cases import ParseAndSyncInteractor
+from backend.python_services.infrastructure.adapters import HttpLexiconGateway
+from backend.python_services.infrastructure.bootstrap.initialization_coordinator import InitializationCoordinator
+from backend.python_services.infrastructure.bootstrap.llama_server_runtime import LlamaCppServerManager
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.logging import AppLoggingService
 
 
 def _project_root() -> Path:
@@ -26,7 +26,7 @@ def _logs_dir() -> Path:
 
 
 def _warmup_probe_db_path() -> Path:
-    path = _runtime_dir() / "data" / "nlp_service_warmup.sqlite3"
+    path = _runtime_dir() / "data" / "nlp_service_warmup.probe"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

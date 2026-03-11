@@ -93,7 +93,7 @@ docker compose --env-file .env.compose.postgres up
 
 Critical invariant:
 
-- `AssignmentGateway` writes only to `assignments.db`
+- `AssignmentGateway` writes only to the assignments owner-service boundary
 - assignment → lexicon writes are allowed only through `assignment_sync_use_case`
 
 Assignments operation order: `sync → scan`.
@@ -200,6 +200,6 @@ Example:
 
 ```text
 Update assignments quick-add flow.
-Keep assignments.db isolation and do not break import boundaries.
+Keep assignments-service isolation and do not break import boundaries.
 Run unit tests + architecture tests.
 ```

@@ -3,9 +3,9 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from core.domain import ILexiconRepository, ParseSyncSettings
-import core.domain.reason_codes as domain_reasons
-from core.domain.services import TextProcessor
+from backend.python_services.core.domain import ILexiconRepository, ParseSyncSettings
+import backend.python_services.core.domain.reason_codes as domain_reasons
+from backend.python_services.core.domain.services import TextProcessor
 
 
 THIRD_PASS_SCHEMA_VERSION = 1

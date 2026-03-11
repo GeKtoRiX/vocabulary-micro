@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from infrastructure.config import PipelineSettings
-from infrastructure.sqlite.lexicon_engine import LexiconEngine
-from core.domain import TokenRecord
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.nlp.lexicon_engine import LexiconEngine
+from backend.python_services.core.domain import TokenRecord
 
 
 class _StubLexiconEngine(LexiconEngine):
@@ -57,4 +57,3 @@ def test_apply_pos_hints_sets_hint_for_uncategorized_token() -> None:
 
     assert token.categories == ["Interjection"]
     assert token.match_source == "spacy_pos_hint"
-

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import traceback
 
-from core.domain import ILoggingService
+from backend.python_services.core.domain import ILoggingService
 
 
 class BaseInteractor:

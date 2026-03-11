@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from infrastructure.sqlite.assignment_sentence_extractor import AssignmentSentenceExtractor
+from backend.python_services.infrastructure.nlp.assignment_sentence_extractor import AssignmentSentenceExtractor
 
 
 @dataclass

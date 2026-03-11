@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from core.domain import LexiconEntryRecord, LexiconQuery, LexiconSearchResult, Result
-from core.domain.services.assignment_scanner_service import AssignmentScannerService
+from backend.python_services.core.domain import LexiconEntryRecord, LexiconQuery, LexiconSearchResult, Result
+from backend.python_services.core.domain.services.assignment_scanner_service import AssignmentScannerService
 
 
 class _StubLexiconSearchInteractor:

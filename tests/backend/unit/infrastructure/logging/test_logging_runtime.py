@@ -9,8 +9,8 @@ import types
 
 import pytest
 
-from infrastructure import logging as logging_api
-from infrastructure.logging import app_logger, file_logger, json_logger, metrics, tracing
+from backend.python_services.infrastructure import logging as logging_api
+from backend.python_services.infrastructure.logging import app_logger, file_logger, json_logger, metrics, tracing
 
 
 @pytest.fixture

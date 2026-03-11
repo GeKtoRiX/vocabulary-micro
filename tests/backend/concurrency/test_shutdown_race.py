@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import Event
 import time
 
-from core.domain.services import AsyncSyncJob, AsyncSyncQueue
+from backend.python_services.core.domain.services import AsyncSyncJob, AsyncSyncQueue
 
 
 def test_wait_for_idle_requires_no_in_flight_jobs() -> None:

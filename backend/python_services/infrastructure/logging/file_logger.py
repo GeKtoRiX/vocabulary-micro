@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from core.domain import ILoggingService
+from backend.python_services.core.domain import ILoggingService
 
 
 class FileLoggingService(ILoggingService):

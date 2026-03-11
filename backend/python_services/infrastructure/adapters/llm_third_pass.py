@@ -8,8 +8,8 @@ from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from core.domain.services import TextProcessor
-from infrastructure.config import PipelineSettings
+from backend.python_services.core.domain.services import TextProcessor
+from backend.python_services.infrastructure.config import PipelineSettings
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)

@@ -11,8 +11,8 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
 
-from infrastructure.config import PipelineSettings
-from infrastructure.logging import AppLoggingService
+from backend.python_services.infrastructure.config import PipelineSettings
+from backend.python_services.infrastructure.logging import AppLoggingService
 
 
 @dataclass(frozen=True)

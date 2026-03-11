@@ -97,7 +97,7 @@ class InitializationCoordinator:
             self._logger.error("ai_warmup_failed error=%s", exc, exc_info=True)
 
     def _warmup_semantic_engine(self) -> None:
-        from infrastructure.config import PipelineSettings
+        from backend.python_services.infrastructure.config import PipelineSettings
         try:
             from skills.semantic_query_engine import SemanticQueryEngine
         except Exception as exc:

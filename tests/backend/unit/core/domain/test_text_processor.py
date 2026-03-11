@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.domain.services.text_processor import TextProcessor
+from backend.python_services.core.domain.services.text_processor import TextProcessor
 
 
 # ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from infrastructure.bootstrap.initialization_coordinator import InitializationCoordinator
-from infrastructure.config.env_readers import read_bool, read_float, read_int, read_str
+from backend.python_services.infrastructure.bootstrap.initialization_coordinator import InitializationCoordinator
+from backend.python_services.infrastructure.config.env_readers import read_bool, read_float, read_int, read_str
 
 
 def test_env_readers_parse_values_and_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,7 +37,7 @@ def test_initialization_coordinator_start_wait_and_snapshot_success(
 ) -> None:
     coordinator = InitializationCoordinator(
         project_root=tmp_path,
-        db_path=tmp_path / "lexicon.sqlite3",
+        db_path=tmp_path / "lexicon.probe",
     )
     monkeypatch.setattr(coordinator, "_warmup_semantic_engine", lambda: None)
 
@@ -61,7 +61,7 @@ def test_initialization_coordinator_failure_sets_failed_state(
 ) -> None:
     coordinator = InitializationCoordinator(
         project_root=tmp_path,
-        db_path=tmp_path / "lexicon.sqlite3",
+        db_path=tmp_path / "lexicon.probe",
     )
 
     def _fail() -> None:
@@ -79,7 +79,7 @@ def test_initialization_coordinator_failure_sets_failed_state(
 
 
 def test_initialization_coordinator_wait_false_when_thread_alive(tmp_path: Path) -> None:
-    coordinator = InitializationCoordinator(project_root=tmp_path, db_path=tmp_path / "db.sqlite3")
+    coordinator = InitializationCoordinator(project_root=tmp_path, db_path=tmp_path / "db.probe")
 
     class _FakeThread:
         def join(self, timeout: float | None = None) -> None:

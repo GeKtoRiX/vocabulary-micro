@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.domain import PhraseMatchRecord, TokenRecord
+from backend.python_services.core.domain import PhraseMatchRecord, TokenRecord
 
 from .index_provider import LexiconIndexSnapshot
 

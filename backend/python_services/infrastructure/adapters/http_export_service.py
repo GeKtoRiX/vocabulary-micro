@@ -7,7 +7,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from core.domain import ExportRequest, ExportResult
+from backend.python_services.core.domain import ExportRequest, ExportResult
 
 try:
     from openpyxl import Workbook
