@@ -16,7 +16,7 @@ Data flow:
 
 Layer responsibilities:
 
-- `frontend/`: React 19 SPA — tabs, hooks, components
+- `frontend/`: React 19 SPA — FSD layout: `app/`, `features/*/ui/`, `shared/{ui,hooks,api,utils,styles}/`
 - `backend/services/`: Fastify gateway and boundary services
 - `backend/python_services/core/`: canonical domain contracts, DTOs, use cases, pure services — **never add external deps here**
 - `backend/python_services/infrastructure/`: canonical NLP/runtime adapters, config, logging, warmup/bootstrap
@@ -159,10 +159,29 @@ Required reason codes:
 python3 -m pytest -q tests/backend/architecture/test_import_boundaries.py
 ```
 
-### Full suite
+### Full Python suite
 
 ```bash
 python3 -m pytest -q tests/
+```
+
+### TypeScript service tests
+
+```bash
+cd backend/services && npm run test -- --run
+```
+
+### Frontend build + unit tests
+
+```bash
+cd frontend && npm run build
+cd frontend && npm run test -- --run
+```
+
+### Playwright UI smoke (headless Firefox)
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH=~/.cache/playwright ./node_modules/.bin/playwright test
 ```
 
 ### Postgres cutover smoke
@@ -171,16 +190,10 @@ python3 -m pytest -q tests/
 RUN_DOCKER_SMOKE=1 python3 -m pytest -q tests/backend/integration/test_postgres_cutover_smoke.py
 ```
 
-### Compose Postgres smoke
+### LLM third-pass E2E (requires Qwen3.5-9B GGUF + Docker)
 
 ```bash
-bash .github/scripts/compose_postgres_smoke.sh
-```
-
-### Frontend build
-
-```bash
-cd frontend && npm run build
+LLM_STAGE_CHECK_REQUIRE_THIRD_PASS_OCCURRENCES=true bash scripts/run_llm_stage_check.sh
 ```
 
 ## 9. Prompting Pattern That Works Well

@@ -111,15 +111,22 @@ docker compose --env-file .env.compose.sqlite up
 Clean Architecture with strict dependency boundaries:
 
 ```
-frontend/                React + Vite + TypeScript SPA
+frontend/                React 19 + Vite 7 SPA — Feature-Sliced Design
+  src/app/               root component + top-level hooks
+  src/features/          parse/, lexicon/, assignments/, statistics/
+  src/shared/            ui/, hooks/, api/, utils/, styles/
 backend/services/        TypeScript gateway and boundary microservices
 backend/python_services/ internal Python capability APIs + shared Python runtime
 core/                    compatibility shim package for historical `core.*` imports
 infrastructure/          compatibility shim package for historical `infrastructure.*` imports
-agents/                   agent tooling and local skills implementation
-tests/backend/            backend/runtime/unit/integration test suites
-tests/governance/         governance and agent-tooling checks
+scripts/lib/             shared shell helpers (net.py — TCP/HTTP/LLM probes)
+agents/                  agent tooling and local skills implementation
+tests/backend/           backend/runtime/unit/integration test suites
+tests/frontend/          Playwright UI smoke tests (headless Firefox)
+tests/governance/        governance and agent-tooling checks
 ```
+
+Frontend path aliases: `@app`, `@features`, `@shared` (configured in `vite.config.ts` and `tsconfig.app.json`).
 
 Agent support files are intentionally split into two layers:
 
@@ -188,31 +195,32 @@ Optional ROCm `vLLM` path remains available through `LLM_SERVICE_RUNTIME=vllm`, 
 
 Live smoke scripts:
 
-- `bash scripts/run_llm_stage_check_tuned.sh` — generic tuned smoke for managed LLM startup + SSE stages
-- `bash scripts/run_llm_mwe_e2e.sh` — end-to-end smoke that additionally requires third-pass to extract both a phrasal verb and an idiom
+- `bash scripts/run_llm_stage_check.sh` — starts stack + POST /api/parse + validates stage_progress for nlp and llm
+- `bash scripts/llama_server_docker.sh` — wrapper for `ghcr.io/ggml-org/llama.cpp:server` with local GGUF mount
 
 ## Tests
 
 ```bash
+# Python unit + integration
 python3 -m pytest -q tests/
-```
 
-Architecture boundary checks:
+# TypeScript service tests (vitest)
+cd backend/services && npm run test -- --run
 
-```bash
+# Frontend unit tests (vitest)
+cd frontend && npm run test -- --run
+
+# Playwright UI smoke (headless Firefox, 6 scenarios)
+PLAYWRIGHT_BROWSERS_PATH=~/.cache/playwright ./node_modules/.bin/playwright test
+
+# Architecture boundary checks
 python3 -m pytest -q tests/backend/architecture/
-```
 
-Governance / agent-tooling checks:
+# LLM third-pass E2E (requires Qwen3.5-9B GGUF + Docker)
+LLM_STAGE_CHECK_REQUIRE_THIRD_PASS_OCCURRENCES=true bash scripts/run_llm_stage_check.sh
 
-```bash
-python3 -m pytest -q tests/governance/tools/
-```
-
-Compose smoke in CI:
-
-```bash
-bash .github/scripts/compose_postgres_smoke.sh
+# Docker integration smoke
+bash scripts/run_docker_smoke.sh
 ```
 
 ## Data Storage
