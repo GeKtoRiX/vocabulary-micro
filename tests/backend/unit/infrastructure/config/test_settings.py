@@ -69,6 +69,8 @@ def test_pipeline_settings_default_factories() -> None:
     assert PipelineSettings().bert_local_files_only is True
     assert PipelineSettings().st_local_files_only is True
     assert PipelineSettings().assignment_diff_viewer_enabled is False
+    assert PipelineSettings().max_input_tokens == 4096
+    assert PipelineSettings().third_pass_llm_max_tokens == 4096
 
 
 def test_pipeline_settings_reads_llama_server_env(monkeypatch: pytest.MonkeyPatch) -> None:

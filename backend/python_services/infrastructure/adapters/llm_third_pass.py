@@ -23,6 +23,12 @@ _JSON_OCCURRENCE_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 _TEXT_PROCESSOR = TextProcessor()
+_SYSTEM_PROMPT = (
+    "You are a conservative extractor of English phrasal verbs and idioms. "
+    "Detect only explicit occurrences supported by the input text. "
+    "Classify carefully between phrasal_verb and idiom. "
+    "Return exactly one JSON object and nothing else."
+)
 
 
 def _normalize_expression_type(raw: str) -> str:
@@ -147,10 +153,7 @@ class LlmThirdPassExtractor:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You extract English phrasal verbs and idioms from text. "
-                        "Return strict JSON only."
-                    ),
+                    "content": _SYSTEM_PROMPT,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -403,15 +406,34 @@ class LlmThirdPassExtractor:
         max_items = max(1, int(self._settings.third_pass_llm_max_items))
         return (
             f"{think_prefix}\n"
-            "Extract only explicit English phrasal verbs and idioms from the text.\n"
-            "Rules:\n"
-            "- Keep canonical form in lowercase.\n"
+            "Task: extract only explicit English phrasal verbs and idioms that actually occur in TEXT.\n"
+            "Definitions:\n"
+            "- phrasal_verb = a verb-headed multi-word expression whose verb + particle/preposition "
+            "belong to the lexical unit. Canonicalize to dictionary form with the base verb and without "
+            "inserted objects: \"came up with\" -> \"come up with\", \"let them down\" -> \"let down\".\n"
+            "- idiom = a fixed or semi-fixed figurative expression whose overall meaning is not fully "
+            "compositional. Canonicalize to common dictionary form: \"bitten off more than she could chew\" "
+            "-> \"bite off more than one can chew\", \"called it a day\" -> \"call it a day\".\n"
+            "Reject:\n"
+            "- ordinary literal verb + preposition combinations;\n"
+            "- free collocations or transparent combinations;\n"
+            "- single words;\n"
+            "- phrases not explicitly supported by the text.\n"
+            "Decision policy:\n"
+            "- If a candidate could fit both labels, use phrasal_verb only when it is clearly verb-headed "
+            "and the particle/preposition is integral to the lexical unit.\n"
+            "- Use idiom only for fixed figurative expressions.\n"
+            "- If unsure, omit the candidate.\n"
+            "Output rules:\n"
+            "- Preserve the order of first appearance.\n"
+            "- Keep canonical_form in lowercase.\n"
             "- expression_type must be only 'phrasal_verb' or 'idiom'.\n"
-            "- usage_label must be 'idiomatic' unless clearly literal.\n"
-            "- Do not invent phrases that are not present.\n"
+            "- usage_label must be 'idiomatic' unless the context is clearly literal.\n"
+            "- confidence must be a number between 0.0 and 1.0.\n"
             f"- Return at most {max_items} occurrences.\n"
             "- Keep gloss concise (max 12 words).\n"
-            "- Return JSON object with key 'occurrences'.\n"
+            "- Return exactly one JSON object with key 'occurrences'. No markdown. No commentary. No reasoning.\n"
+            "- If there are no valid candidates, return {\"occurrences\": []}.\n"
             "JSON shape:\n"
             "{\n"
             "  \"occurrences\": [\n"
@@ -527,4 +549,3 @@ class LlmThirdPassExtractor:
             "rejected_candidates": [],
             "category_review_required": [],
         }
-

@@ -39,6 +39,12 @@
 - Проверка инструментов: `python3 -m pytest -q tests/governance/tools/test_tools_registry.py`
 
 ## Decisions
+- `2026-03-11` — Лимиты long-text third-pass подняты до `4096`: Python pipeline теперь принимает до `4096` входных токенов, а third-pass LLM generation budget тоже увеличен до `4096`.
+  Зачем: live проверка на тексте из 10 предложений с idiom/phrasal verb показала, что прежние `2048`/`256` лимиты были узким местом — tokenizer мог резать длинный вход, а в `think_mode=true` Qwen/llama.cpp успевал выдать только начало reasoning и не доходил до parseable payload.
+- `2026-03-11` — На локальном `llama.cpp`/ROCm path для RX 7600 XT live third-pass проверка оказалась чувствительна к ROCm env: c `HSA_OVERRIDE_GFX_VERSION=11.0.0` и `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` сервер поднимается и отвечает, а без них прямой wrapper-запуск падал до обслуживания запросов.
+  Зачем: это зафиксированное инфраструктурное условие для воспроизводимого локального smoke `thinking on/off`; без этих env ложный вывод был бы таким, будто сломан `think_mode`, хотя фактически падал сам runtime.
+- `2026-03-11` — Third-pass LLM prompt для MWE extraction ужесточён: system/user prompt теперь явно разводят `phrasal_verb` и `idiom`, требуют dictionary-form canonicalization, запрещают догадки и предписывают пустой `occurrences` при сомнении.
+  Зачем: локальный runtime на C1-примерах путал фразовые глаголы с идиомами и иногда возвращал слишком свободные кандидаты; более жёсткий taxonomy + no-guess contract снижает ложные срабатывания и лучше направляет Qwen/llama.cpp на точный JSON-ответ.
 - `2026-03-11` — Third-pass LLM adapter переведён на streaming OpenAI-compatible chat path с `chat_template_kwargs.enable_thinking`, а `scripts/llama_server_docker.sh` по умолчанию использует ROCm-образ `ghcr.io/ggml-org/llama.cpp:server-rocm` и пробрасывает AMD GPU/HSA env.
   Зачем: на локальном llama.cpp runtime потоковая обработка chunk-by-chunk лучше согласуется с реальным поведением сервера, упрощает работу с `reasoning_content` и снижает риск таймаутов ожидания полного ответа; отдельный ROCm default-path закрепляет рабочий AMD local-first сценарий без ручной перенастройки wrapper-скрипта.
 - `2026-03-11` — `start.sh` разделён на thin entrypoint + shell-модули `scripts/start/{helpers,commands,runtime}.sh`, при этом внешний интерфейс запуска (`./start.sh ...`) сохранён без изменений.

@@ -28,6 +28,44 @@ TEST_SENTENCES = [
         {"pull through", "let down", "come up with"},
     ),
 ]
+DIRECT_SYSTEM_PROMPT = (
+    "You are a conservative extractor of English phrasal verbs and idioms. "
+    "Detect only explicit occurrences supported by the input text. "
+    "Classify carefully between phrasal_verb and idiom. "
+    "Return exactly one JSON object and nothing else."
+)
+
+
+def build_direct_prompt(text: str) -> str:
+    return (
+        "/no_think\n"
+        "Task: extract only explicit English phrasal verbs and idioms that actually occur in TEXT.\n"
+        "Definitions:\n"
+        "- phrasal_verb = a verb-headed multi-word expression whose verb + particle/preposition "
+        "belong to the lexical unit. Canonicalize to dictionary form with the base verb and without "
+        "inserted objects: \"came up with\" -> \"come up with\", \"let them down\" -> \"let down\".\n"
+        "- idiom = a fixed or semi-fixed figurative expression whose overall meaning is not fully "
+        "compositional. Canonicalize to common dictionary form: \"bitten off more than she could chew\" "
+        "-> \"bite off more than one can chew\", \"called it a day\" -> \"call it a day\".\n"
+        "Reject ordinary literal verb + preposition combinations, free collocations, single words, "
+        "and phrases not explicitly supported by the text.\n"
+        "If a candidate could fit both labels, use phrasal_verb only when it is clearly verb-headed "
+        "and the particle/preposition is integral to the lexical unit. Use idiom only for fixed "
+        "figurative expressions. If unsure, omit the candidate.\n"
+        "Output rules:\n"
+        "- Preserve order of first appearance.\n"
+        "- Keep canonical_form in lowercase.\n"
+        "- expression_type must be only 'phrasal_verb' or 'idiom'.\n"
+        "- usage_label must be 'idiomatic' unless the context is clearly literal.\n"
+        "- gloss <= 12 words.\n"
+        "- confidence must be a number between 0.0 and 1.0.\n"
+        "- Return exactly one JSON object with key 'occurrences'. No markdown. No commentary. No reasoning.\n"
+        "- If there are no valid candidates, return {\"occurrences\": []}.\n"
+        "JSON shape:\n"
+        "{\"occurrences\": [{\"canonical_form\": \"string\", \"expression_type\": \"phrasal_verb|idiom\", "
+        "\"usage_label\": \"idiomatic|literal\", \"gloss\": \"short meaning\", \"confidence\": 0.0}]}\n\n"
+        f"TEXT:\n{text}"
+    )
 
 
 def http_get(url: str, timeout: float = 5.0) -> dict:
@@ -164,15 +202,9 @@ def test_llm_endpoint(llm_url: str, model: str) -> bool:
     print("=" * 60)
     ok = True
     for sentence, expected_forms in TEST_SENTENCES:
-        prompt = (
-            "/no_think\n"
-            "Extract only explicit English phrasal verbs and idioms from the text.\n"
-            "Return JSON: {\"occurrences\": [{\"canonical_form\": \"...\", "
-            "\"expression_type\": \"phrasal_verb|idiom\", \"confidence\": 0.0}]}\n\n"
-            f"TEXT:\n{sentence}"
-        )
+        prompt = build_direct_prompt(sentence)
         messages = [
-            {"role": "system", "content": "You extract English phrasal verbs and idioms. Return strict JSON only."},
+            {"role": "system", "content": DIRECT_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         print(f"\nТекст: {sentence[:80]}...")
